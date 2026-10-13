@@ -1,0 +1,28 @@
+[package]
+name = "flipstudio-pro"
+version = "1.2.0"
+description = "FlipStudio Pro - interactive catalogue and flipbook publisher"
+authors = ["ADesignAerium"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+# The `_lib` suffix avoids a name clash with the binary on Windows (cargo issue #8519).
+name = "flipstudio_pro_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-opener = "2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

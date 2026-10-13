@@ -1,0 +1,61 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "FlipStudio Pro",
+  "version": "1.2.0",
+  "identifier": "com.adesignaerium.flipstudio",
+  "build": {
+    "beforeDevCommand": "npm run dev:tauri",
+    "devUrl": "http://localhost:5183",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "FlipStudio Pro",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "resizable": true,
+        "center": true,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "publisher": "ADesignAerium",
+    "copyright": "Copyright © 2026 ADesignAerium",
+    "category": "Productivity",
+    "shortDescription": "Interactive catalogue and flipbook publisher",
+    "longDescription": "FlipStudio Pro turns PDF catalogues into interactive flipbooks with images, slideshows, animations and links, and exports self-contained HTML publications.",
+    "homepage": "https://adesignaerium.com",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "displayLanguageSelector": false,
+        "languages": ["English"]
+      },
+      "wix": {
+        "language": "en-US"
+      }
+    }
+  }
+}
