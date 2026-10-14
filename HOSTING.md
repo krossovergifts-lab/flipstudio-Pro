@@ -12,71 +12,50 @@ How it works: when you click **Publish online**, the app uploads the flipbook
 repository. A free static host connected to that repository puts each change
 live, usually within a minute. You do not need a server or to run any commands.
 
-You set this up **once**.
+You set this up **once**, inside the app. It takes about 2 minutes.
 
-## 1. Create the repository (GitHub)
+## Easy setup — free hosting on GitHub Pages (recommended)
 
-1. Sign in at https://github.com (a free account is enough).
-2. Go to https://github.com/new
-   - Repository name: for example `flipbooks`
-   - **Private** is fine with Vercel or Cloudflare Pages. (GitHub Pages on a free account needs **Public**.)
-   - Leave "Add a README" unticked — the app creates the first files.
-3. Click **Create repository**.
+Click **🌐 Publish** (library card or editor). The setup window has three steps:
 
-## 2. Create an access token for the app
+1. **Create repository ↗** — opens GitHub with the name `flipbooks` and *Public*
+   already filled in. Click **Create repository**.
+2. **Create access key ↗** — opens GitHub's token page with the right permissions
+   already selected (*Contents* and *Pages*: read and write, 1-year expiry).
+   Under **Repository access** choose **Only select repositories → flipbooks**,
+   click **Generate token** and copy it.
+3. **Paste the key**, type your bookshelf title and click **Connect**.
 
-1. Open https://github.com/settings/personal-access-tokens/new (Fine-grained token).
-2. Token name: `FlipStudio Pro`. Expiration: up to 1 year (set a reminder to renew).
-3. **Repository access → Only select repositories →** `flipbooks`.
-4. **Permissions → Repository permissions → Contents → Read and write.** Nothing else is needed.
-5. **Generate token** and copy it (it starts with `github_pat_`). You will not see it again.
+The app then switches on GitHub Pages by itself and fills in the website address,
+for example `https://krossovergifts-lab.github.io/flipbooks/`. Nothing to set up on
+Vercel or anywhere else.
 
-The token is stored only on your computer (not in projects, exports or the
-website). It can only change that one repository.
+Notes
+- The `flipbooks` repository is public (GitHub Pages is free for public
+  repositories). It only contains the published flipbooks, which are public anyway —
+  never the app's code or your editable projects.
+- Do **not** import the app's code repository (`flipstudio-Pro`) into Vercel. It is a
+  desktop app, not a website.
+- The key expires after a year: create a new one with the same button and click Connect again.
 
-## 3. Connect a free host
+## Other hosts (optional): Vercel, Cloudflare Pages, your own domain
 
-Pick one. All three serve the same files.
+In the setup window click **Use Vercel, Cloudflare or my own domain**.
 
-### Option A — Vercel (simplest)
-1. https://vercel.com → **Add New… → Project** → **Import** the `flipbooks` repository
-   (give Vercel access to it when asked).
-2. Framework Preset: **Other**. Build command: leave empty. Output directory: leave empty (the repository root).
-3. **Deploy.** Your address looks like `https://flipbooks-xxxx.vercel.app`.
+1. Create the `flipbooks` repository (Private is fine here) and a key as above.
+2. Connect **that** repository to the host:
+   - **Vercel**: Add New → Project → import `flipbooks` → Framework preset **Other**, no build command → Deploy.
+     The free Hobby plan is non-commercial; use a Pro team for company catalogues.
+   - **Cloudflare Pages** (free, commercial use allowed): Workers & Pages → Create → Pages →
+     Connect to Git → `flipbooks` → preset **None**, output directory `/` → Deploy.
+3. Fill in owner, repository, branch (`main`), key and the address the host gives you, click
+   **Test connection**, then **Save settings**.
 
-Note: Vercel's free Hobby plan is for personal, non-commercial use. For
-company catalogues use a Pro team (Krossover already has one) or Cloudflare Pages.
+For a custom domain such as `books.krossover.net`, add it in the host's (or GitHub Pages')
+domain settings, create the DNS record it shows, then put that address in the advanced
+settings and republish so link previews use it.
 
-### Option B — Cloudflare Pages (free, commercial use allowed)
-1. https://dash.cloudflare.com → **Workers & Pages → Create → Pages → Connect to Git** → choose `flipbooks`.
-2. Framework preset: **None**. Build command: empty. Build output directory: `/`.
-3. **Save and Deploy.** Your address looks like `https://flipbooks.pages.dev`.
-
-### Option C — GitHub Pages (repository must be public on a free account)
-1. In the repository: **Settings → Pages → Build and deployment → Deploy from a branch → `main` / `(root)` → Save**.
-2. Your address is `https://<your-github-name>.github.io/flipbooks`.
-
-### Your own domain (optional)
-Add e.g. `books.krossover.net` in the host's **Domains** settings and create the
-DNS record it shows (usually a CNAME). Then put that address in the app's
-publishing settings and republish so share previews use it.
-
-## 4. Fill in the app's publishing settings
-
-Library → a publication's **🌐 Publish** button (or **Publish online** in the editor):
-
-| Field | Example |
-|---|---|
-| GitHub owner | `krossover` (your user or organisation name) |
-| Repository | `flipbooks` |
-| Branch | `main` |
-| Access token | `github_pat_…` |
-| Website address | `https://flipbooks.pages.dev` |
-| Bookshelf title | `Krossover Catalogues` |
-
-Click **Test connection**, then **Save settings**.
-
-## 5. Publish, share, update, unpublish
+## Publish, share, update, unpublish
 
 - **Publish**: choose the link name (e.g. `promotional-gifts-2027`) → **Publish**. Copy the link, open it, or share on WhatsApp.
 - **Update**: edit the publication, then **Publish online → Update online version**. Only changed files are uploaded; the link stays the same.

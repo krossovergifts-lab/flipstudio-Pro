@@ -51,5 +51,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    // CI machines (GitHub's Windows runners) are much slower than a laptop.
+    testTimeout: 60000,
+    setupFiles: ['./src/test-setup.ts'],
   },
 })

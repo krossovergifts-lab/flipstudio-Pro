@@ -85,3 +85,16 @@
 .publish-dialog button.danger.primary { color: #fff; background: #dc2626; border-color: #dc2626; }
 .publish-dialog button.link-like { padding: 5px 0; color: #93c5fd; background: none; border: 0; }
 .publish-dialog button:disabled { opacity: 0.5; cursor: default; }
+
+.publish-intro { color: #cbd5e1; }
+.publish-step { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px; background: #0b1220; border: 1px solid rgba(148, 163, 184, 0.22); border-radius: 10px; }
+.publish-step > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; color: #94a3b8; font-size: 12px; }
+.publish-step strong { color: #f1f5f9; font-size: 13px; }
+.publish-step em { color: #e2e8f0; font-style: normal; font-weight: 600; }
+.publish-step-no { display: grid; place-items: center; width: 28px; height: 28px; color: #fff; background: #2563eb; border-radius: 50%; font-weight: 700; align-self: start; }
+.publish-step-btn { padding: 7px 12px; color: #fff !important; background: #1e293b; border: 1px solid rgba(148, 163, 184, 0.4); border-radius: 6px; text-decoration: none; white-space: nowrap; }
+.publish-step-btn:hover { background: #273449; }
+.publish-step-fields { grid-column: 2 / 4; gap: 8px !important; }
+.publish-more summary { color: #94a3b8; font-size: 12px; cursor: pointer; }
+.publish-more .publish-grid { margin-top: 8px; }
+@media (max-width: 560px) { .publish-step { grid-template-columns: 28px minmax(0, 1fr); } .publish-step-btn { grid-column: 2; justify-self: start; } .publish-step-fields { grid-column: 2; } }

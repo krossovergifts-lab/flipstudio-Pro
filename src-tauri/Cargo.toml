@@ -1,6 +1,6 @@
 [package]
 name = "flipstudio-pro"
-version = "1.2.0"
+version = "1.2.1"
 description = "FlipStudio Pro - interactive catalogue and flipbook publisher"
 authors = ["ADesignAerium"]
 edition = "2021"

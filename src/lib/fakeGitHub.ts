@@ -24,7 +24,8 @@ export interface FakeGitHub {
   raceOnce: boolean
 }
 
-export async function createFakeGitHub(options: { empty?: boolean; token?: string } = {}): Promise<FakeGitHub> {
+export async function createFakeGitHub(options: { empty?: boolean; token?: string; login?: string; missingRepo?: boolean; private?: boolean } = {}): Promise<FakeGitHub> {
+  let pagesOn = false
   const blobs = new Map<string, Uint8Array>()
   const trees = new Map<string, Files>()
   const commitTrees = new Map<string, string>()
@@ -83,7 +84,21 @@ export async function createFakeGitHub(options: { empty?: boolean; token?: strin
       if (auth !== `Bearer ${options.token ?? 'good-token'}`) return json(401, { message: 'Bad credentials' })
       const body = init.body ? JSON.parse(String(init.body)) : undefined
 
-      if (method === 'GET' && path === '') return json(200, { private: true, default_branch: 'main', html_url: 'https://github.com/o/r', permissions: { push: true } })
+      if (method === 'GET' && url.pathname === '/user') return json(200, { login: options.login ?? 'krossovergifts-lab' })
+      if (options.missingRepo) return json(404, { message: 'Not Found' })
+      if (method === 'GET' && path === '') return json(200, { private: options.private ?? true, default_branch: 'main', html_url: 'https://github.com/o/r', permissions: { push: true } })
+      if (path === '/pages') {
+        const repoName = url.pathname.split('/')[3]
+        const owner = url.pathname.split('/')[2]
+        const html = { html_url: `https://${owner.toLowerCase()}.github.io/${repoName}/` }
+        if (method === 'GET') return pagesOn ? json(200, html) : json(404, { message: 'Not Found' })
+        if (method === 'POST') {
+          if (options.private) return json(422, { message: 'Your current plan does not support GitHub Pages for this repository.' })
+          if (!head) return json(422, { message: 'The main branch must exist before GitHub Pages can build.' })
+          pagesOn = true
+          return json(201, html)
+        }
+      }
       if (method === 'GET' && path === '/git/ref/heads/main') {
         if (!head) return json(409, { message: 'Git Repository is empty.' })
         return json(200, { object: { sha: head } })

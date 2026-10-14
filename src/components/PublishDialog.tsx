@@ -5,6 +5,10 @@ import { errorMessage } from '../lib/errors'
 import { openExternal } from '../lib/external'
 import {
   bookUrl,
+  connectGitHubPages,
+  DEFAULT_SITE_REPO,
+  newRepoUrl,
+  newTokenUrl,
   EMPTY_SETTINGS,
   GitHubRepo,
   loadPublishSettings,
@@ -53,7 +57,7 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-function SetupForm({ initial, onSaved, onCancel, fetchImpl, apiBase }: { initial: PublishSettings; onSaved: (settings: PublishSettings) => void; onCancel: () => void; fetchImpl?: PublishDialogProps['fetchImpl']; apiBase?: string }) {
+function AdvancedSetup({ initial, onSaved, onCancel, fetchImpl, apiBase }: { initial: PublishSettings; onSaved: (settings: PublishSettings) => void; onCancel: () => void; fetchImpl?: PublishDialogProps['fetchImpl']; apiBase?: string }) {
   const [draft, setDraft] = useState<PublishSettings>(initial)
   const [check, setCheck] = useState<{ ok: boolean; message: string } | null>(null)
   const [checking, setChecking] = useState(false)
@@ -85,19 +89,7 @@ function SetupForm({ initial, onSaved, onCancel, fetchImpl, apiBase }: { initial
 
   return (
     <form className="publish-setup" onSubmit={(event) => { event.preventDefault(); if (ready) onSaved(cleaned()) }}>
-      <ol className="publish-steps">
-        <li>
-          <strong>Create a GitHub repository</strong> for your website, for example <code>flipbooks</code>. Private is fine with Vercel or Cloudflare Pages.{' '}
-          <a href="https://github.com/new" target="_blank" rel="noopener noreferrer">Create repository ↗</a>
-        </li>
-        <li>
-          <strong>Create a fine-grained access token</strong>: Repository access → <em>Only select repositories</em> → your repository; Permissions → <em>Contents: Read and write</em>.{' '}
-          <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">Create token ↗</a>
-        </li>
-        <li>
-          <strong>Connect the repository to a free host</strong> — Vercel (Add New → Project → import the repository → Framework preset <em>Other</em> → Deploy) or Cloudflare Pages — and copy the website address it gives you.
-        </li>
-      </ol>
+      <p className="publish-note">For Vercel, Cloudflare Pages or your own domain. Connect a repository to the host, then fill in all fields.</p>
       <div className="publish-grid">
         <label>GitHub owner (user or organisation)<input value={draft.owner} onChange={(event) => set({ owner: event.target.value })} placeholder="krossover" autoComplete="off" spellCheck={false} /></label>
         <label>Repository<input value={draft.repo} onChange={(event) => set({ repo: event.target.value })} placeholder="flipbooks" autoComplete="off" spellCheck={false} /></label>
@@ -112,6 +104,83 @@ function SetupForm({ initial, onSaved, onCancel, fetchImpl, apiBase }: { initial
         <button type="button" onClick={onCancel}>Cancel</button>
         <button type="button" onClick={() => void test()} disabled={!draft.owner.trim() || !draft.repo.trim() || !draft.token.trim() || checking}>{checking ? 'Checking…' : 'Test connection'}</button>
         <button type="submit" className="primary" disabled={!ready}>Save settings</button>
+      </div>
+    </form>
+  )
+}
+
+
+function SetupForm({ initial, onSaved, onCancel, fetchImpl, apiBase }: { initial: PublishSettings; onSaved: (settings: PublishSettings) => void; onCancel: () => void; fetchImpl?: PublishDialogProps['fetchImpl']; apiBase?: string }) {
+  const [advanced, setAdvanced] = useState(false)
+  const [token, setToken] = useState(initial.token)
+  const [owner, setOwner] = useState(initial.owner)
+  const [repo, setRepo] = useState(initial.repo || DEFAULT_SITE_REPO)
+  const [siteTitle, setSiteTitle] = useState(initial.siteTitle || 'Our publications')
+  const [busy, setBusy] = useState('')
+  const [problem, setProblem] = useState('')
+
+  if (advanced) {
+    return (
+      <AdvancedSetup initial={initial} onSaved={onSaved} onCancel={() => setAdvanced(false)} fetchImpl={fetchImpl} apiBase={apiBase} />
+    )
+  }
+
+  const connect = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setProblem('')
+    setBusy('Connecting…')
+    try {
+      const settings = await connectGitHubPages(token.trim(), { owner: owner.trim() || undefined, repo: repo.trim() || DEFAULT_SITE_REPO, siteTitle, fetchImpl, apiBase, onProgress: setBusy })
+      onSaved(settings)
+    } catch (err) {
+      setProblem(errorMessage(err, 'Could not connect.'))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <form className="publish-setup" onSubmit={(event) => void connect(event)}>
+      <p className="publish-intro">One-time setup — your flipbooks are hosted free on GitHub Pages. About 2 minutes.</p>
+      <div className="publish-step">
+        <span className="publish-step-no">1</span>
+        <div>
+          <strong>Create the website repository</strong>
+          <span>Opens GitHub with everything filled in (name <code>{repo || DEFAULT_SITE_REPO}</code>, Public). Just click <em>Create repository</em>.</span>
+        </div>
+        <a className="publish-step-btn" href={newRepoUrl(repo || DEFAULT_SITE_REPO)} target="_blank" rel="noopener noreferrer">Create repository ↗</a>
+      </div>
+      <div className="publish-step">
+        <span className="publish-step-no">2</span>
+        <div>
+          <strong>Create an access key</strong>
+          <span>Permissions are filled in. Under <em>Repository access</em> choose <em>Only select repositories</em> → <code>{repo || DEFAULT_SITE_REPO}</code>, click <em>Generate token</em> and copy it.</span>
+        </div>
+        <a className="publish-step-btn" href={newTokenUrl(owner)} target="_blank" rel="noopener noreferrer">Create access key ↗</a>
+      </div>
+      <div className="publish-step">
+        <span className="publish-step-no">3</span>
+        <div className="publish-step-fields">
+          <strong>Paste the key and connect</strong>
+          <input type="password" value={token} onChange={(event) => { setToken(event.target.value); setProblem('') }} placeholder="github_pat_…" aria-label="Access key" autoComplete="off" spellCheck={false} />
+          <label>Bookshelf title (your site’s home page)<input value={siteTitle} onChange={(event) => setSiteTitle(event.target.value)} placeholder="Our publications" /></label>
+        </div>
+      </div>
+      <details className="publish-more">
+        <summary>Repository name or organisation</summary>
+        <div className="publish-grid">
+          <label>Repository<input value={repo} onChange={(event) => setRepo(event.target.value)} placeholder={DEFAULT_SITE_REPO} spellCheck={false} /></label>
+          <label>Owner (leave empty for your account)<input value={owner} onChange={(event) => setOwner(event.target.value)} placeholder="your GitHub name" spellCheck={false} /></label>
+        </div>
+      </details>
+      <p className="publish-note">The key is stored only on this computer and can only change the <code>{repo || DEFAULT_SITE_REPO}</code> repository.</p>
+      {problem && <p className="publish-error" role="alert">{problem}</p>}
+      {busy && <p className="publish-note" role="status">{busy}</p>}
+      <div className="publish-foot">
+        <button type="button" className="link-like" onClick={() => setAdvanced(true)}>Use Vercel, Cloudflare or my own domain</button>
+        <span className="spacer" />
+        <button type="button" onClick={onCancel}>Cancel</button>
+        <button type="submit" className="primary" disabled={!token.trim() || Boolean(busy)}>{busy ? 'Connecting…' : 'Connect'}</button>
       </div>
     </form>
   )

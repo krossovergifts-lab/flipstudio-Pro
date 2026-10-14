@@ -12,6 +12,8 @@ import {
   unpublishBook,
   validateSlug,
   whatsappShareUrl,
+  connectGitHubPages,
+  newTokenUrl,
   type PublishSettings,
 } from './publish'
 
@@ -161,3 +163,32 @@ describe('publishBook (against a fake GitHub)', () => {
     await expect(publishBook(settings, book(), { slug: 'gifts', fetchImpl: offline, apiBase: API, shareImage: share, loadFont: noFonts })).rejects.toThrow(/Could not reach GitHub/)
   })
 })
+
+describe('one-step GitHub Pages setup', () => {
+  it('finds the account, prepares an empty repository, switches on Pages and returns the website address', async () => {
+    const github = await createFakeGitHub({ empty: true, private: false })
+    const result = await connectGitHubPages('good-token', { siteTitle: 'Krossover', fetchImpl: github.fetch, apiBase: API })
+    expect(result).toMatchObject({ owner: 'krossovergifts-lab', repo: 'flipbooks', branch: 'main', siteUrl: 'https://krossovergifts-lab.github.io/flipbooks', siteTitle: 'Krossover' })
+    expect(github.calls).toContain('POST /pages')
+    // Connecting again is harmless and publishing works straight away.
+    expect((await connectGitHubPages('good-token', { fetchImpl: github.fetch, apiBase: API })).siteUrl).toBe('https://krossovergifts-lab.github.io/flipbooks')
+    const published = await publishBook(result, book(), { slug: 'gifts', fetchImpl: github.fetch, apiBase: API, shareImage: share, loadFont: noFonts })
+    expect(published.url).toBe('https://krossovergifts-lab.github.io/flipbooks/gifts/')
+    expect(github.files()['404.html']).toContain('href="https://krossovergifts-lab.github.io/flipbooks/"')
+  })
+
+  it('explains a missing repository, a private repository and a bad key', async () => {
+    await expect(connectGitHubPages('good-token', { fetchImpl: (await createFakeGitHub({ missingRepo: true })).fetch, apiBase: API })).rejects.toThrow(/Create it first/)
+    await expect(connectGitHubPages('good-token', { fetchImpl: (await createFakeGitHub({ private: true })).fetch, apiBase: API })).rejects.toThrow(/to be public/)
+    await expect(connectGitHubPages('nope', { fetchImpl: (await createFakeGitHub()).fetch, apiBase: API })).rejects.toThrow(/rejected the access token/)
+  })
+
+  it('pre-fills the access key page with only the permissions publishing needs', () => {
+    const url = new URL(newTokenUrl('krossovergifts-lab'))
+    expect(url.pathname).toBe('/settings/personal-access-tokens/new')
+    expect(url.searchParams.get('contents')).toBe('write')
+    expect(url.searchParams.get('pages')).toBe('write')
+    expect(url.searchParams.get('target_name')).toBe('krossovergifts-lab')
+  })
+})
+

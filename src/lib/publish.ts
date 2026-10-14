@@ -437,7 +437,7 @@ ${cards}
 const NOT_FOUND_HTML = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Publication not found</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px/1.5 'Segoe UI',system-ui,sans-serif;color:#e2e8f0;background:#0b1220;text-align:center}a{color:#93c5fd}</style></head>
-<body><div><h1>Publication not found</h1><p>This flipbook may have been moved or unpublished.</p><p><a href="/">See all publications</a></p></div></body></html>
+<body><div><h1>Publication not found</h1><p>This flipbook may have been moved or unpublished.</p><p><a href="__HOME__">See all publications</a></p></div></body></html>
 `
 
 // ---------------------------------------------------------------------------
@@ -491,7 +491,7 @@ function siteFiles(catalog: Catalog, settings: PublishSettings): TreeEntry[] {
   return [
     text('catalog.json', JSON.stringify(catalog, null, 2) + '\n'),
     text('index.html', buildSiteIndexHtml(catalog, settings.siteUrl)),
-    text('404.html', NOT_FOUND_HTML),
+    text('404.html', NOT_FOUND_HTML.replace('__HOME__', escapeHtml(`${normalizeSiteUrl(settings.siteUrl)}/`))),
     // GitHub Pages: serve files as-is (no Jekyll processing).
     text('.nojekyll', ''),
   ]
@@ -622,4 +622,76 @@ export async function onlineSlugs(settings: PublishSettings, fetchImpl?: FetchLi
 /** WhatsApp share link for a publication. */
 export function whatsappShareUrl(title: string, url: string): string {
   return `https://wa.me/?text=${encodeURIComponent(`${title}\n${url}`)}`
+}
+
+// ---------------------------------------------------------------------------
+// Easy setup: GitHub Pages (free) with one access key
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_SITE_REPO = 'flipbooks'
+
+/** github.com/new pre-filled for the website repository. */
+export function newRepoUrl(repo = DEFAULT_SITE_REPO): string {
+  return `https://github.com/new?name=${encodeURIComponent(repo)}&visibility=public&description=${encodeURIComponent('Online flipbooks published with FlipStudio Pro')}`
+}
+
+/** Fine-grained token page pre-filled with exactly the permissions publishing needs. */
+export function newTokenUrl(owner = ''): string {
+  const params = new URLSearchParams({ name: 'FlipStudio Pro publishing', description: 'Publishes flipbooks to the website repository', expires_in: '366', contents: 'write', pages: 'write' })
+  if (owner.trim()) params.set('target_name', owner.trim())
+  return `https://github.com/settings/personal-access-tokens/new?${params.toString()}`
+}
+
+/**
+ * One-step setup: with only an access key, finds the account and the website
+ * repository, creates its first commit if it is empty, switches on GitHub Pages
+ * and returns complete publishing settings (website address included).
+ */
+export async function connectGitHubPages(
+  token: string,
+  options: { repo?: string; owner?: string; siteTitle?: string; fetchImpl?: FetchLike; apiBase?: string; onProgress?: PublishProgress } = {},
+): Promise<PublishSettings> {
+  const api = options.apiBase ?? 'https://api.github.com'
+  const repoName = (options.repo || DEFAULT_SITE_REPO).trim()
+  const probe = new GitHubRepo({ ...EMPTY_SETTINGS, token, owner: options.owner || 'x', repo: repoName }, options.fetchImpl, api)
+  options.onProgress?.('Checking the access key…')
+  let owner = (options.owner ?? '').trim()
+  if (!owner) {
+    const { data } = await probe.request<{ login: string }>('GET', `${api}/user`)
+    owner = data.login
+  }
+  let settings: PublishSettings = { ...EMPTY_SETTINGS, token: token.trim(), owner, repo: repoName, siteTitle: options.siteTitle?.trim() || EMPTY_SETTINGS.siteTitle, siteUrl: `https://${owner.toLowerCase()}.github.io/${repoName}` }
+  const repo = new GitHubRepo(settings, options.fetchImpl, api)
+  options.onProgress?.(`Opening ${owner}/${repoName}…`)
+  let info: { private: boolean; defaultBranch: string }
+  try {
+    info = await repo.checkAccess()
+  } catch (error) {
+    if (error instanceof PublishError && error.status === 404) {
+      throw new PublishError(`The repository ${owner}/${repoName} was not found, or the access key can't see it. Create it first (button 1), and when creating the key choose “Only select repositories” → ${repoName}.`, 404)
+    }
+    throw error
+  }
+  settings = { ...settings, branch: info.defaultBranch || 'main' }
+  const ready = new GitHubRepo(settings, options.fetchImpl, api)
+  options.onProgress?.('Preparing the website…')
+  await ready.head()
+  options.onProgress?.('Switching on GitHub Pages…')
+  let pages = await ready.request<{ html_url?: string }>('GET', '/pages', undefined, [404])
+  if (pages.status === 404) {
+    try {
+      pages = await ready.request<{ html_url?: string }>('POST', '/pages', { source: { branch: settings.branch, path: '/' } }, [409])
+      if (pages.status === 409) pages = await ready.request<{ html_url?: string }>('GET', '/pages')
+    } catch (error) {
+      if (error instanceof PublishError && info.private) {
+        throw new PublishError(`GitHub Pages needs ${owner}/${repoName} to be public on a free account. On GitHub open the repository → Settings → Change visibility → Public, then click Connect again.`, error.status)
+      }
+      if (error instanceof PublishError && (error.status === 403 || error.status === 404)) {
+        throw new PublishError('The access key can’t switch on GitHub Pages. Create the key again with the button above (it asks for “Pages: Read and write”).', error.status)
+      }
+      throw error
+    }
+  }
+  const siteUrl = normalizeSiteUrl(pages.data?.html_url || settings.siteUrl)
+  return { ...settings, siteUrl }
 }
