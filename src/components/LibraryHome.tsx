@@ -1,3 +1,5 @@
+import { Icon } from './Icon'
+import { ThemeSwitch } from './ThemeSwitch'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { isTauri } from '@tauri-apps/api/core'
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
@@ -207,20 +209,24 @@ export function LibraryHome({ library, index, location, onIndexChange, onOpen }:
         </nav>
         <div className="lib-section-title">
           <span>Folders</span>
-          <button type="button" className="icon-button" aria-label="New folder" title="New folder" onClick={() => setDialog({ kind: 'folder', folderId: null, name: '' })}>+</button>
+          <button type="button" className="icon-button" aria-label="New folder" title="New folder" onClick={() => setDialog({ kind: 'folder', folderId: null, name: '' })}><Icon name="plus" size={15} /></button>
         </div>
         <nav className="lib-nav folders">
           {index.folders.map((folder) => (
             <div key={folder.id} className={`folder-row ${view === folder.id ? 'active' : ''}`}>
               <button type="button" className="folder-name" onClick={() => setView(folder.id)}>
-                <span>📁 {folder.name}</span><span className="count">{index.books.filter((book) => book.folderId === folder.id).length}</span>
+                <span className="with-icon"><Icon name="folder" size={15} />{folder.name}</span><span className="count">{index.books.filter((book) => book.folderId === folder.id).length}</span>
               </button>
-              <button type="button" className="icon-button" aria-label={`Rename ${folder.name}`} title="Rename" onClick={() => setDialog({ kind: 'folder', folderId: folder.id, name: folder.name })}>✎</button>
-              <button type="button" className="icon-button" aria-label={`Delete folder ${folder.name}`} title="Delete folder" onClick={() => setDialog({ kind: 'delete-folder', folderId: folder.id, name: folder.name })}>🗑</button>
+              <button type="button" className="icon-button" aria-label={`Rename ${folder.name}`} title="Rename" onClick={() => setDialog({ kind: 'folder', folderId: folder.id, name: folder.name })}><Icon name="edit" size={14} /></button>
+              <button type="button" className="icon-button" aria-label={`Delete folder ${folder.name}`} title="Delete folder" onClick={() => setDialog({ kind: 'delete-folder', folderId: folder.id, name: folder.name })}><Icon name="trash" size={14} /></button>
             </div>
           ))}
           {!index.folders.length && <p className="muted small lib-empty-folders">Group publications by season, client or brand. Click + to add a folder.</p>}
         </nav>
+        <div className="lib-appearance">
+          <span className="muted small">Appearance</span>
+          <ThemeSwitch />
+        </div>
         <div className="lib-location" title={location}>
           <span className="muted small">Saved in</span>
           <span className="small">{location}</span>
@@ -240,7 +246,7 @@ export function LibraryHome({ library, index, location, onIndexChange, onOpen }:
             <option value="title">Title A–Z</option>
           </select>
           <div className="lib-new">
-            <button type="button" className="primary" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>+ New publication</button>
+            <button type="button" className="primary" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><Icon name="plus" /> New publication</button>
             {menuOpen && (
               <div className="lib-menu" role="menu" onMouseLeave={() => setMenuOpen(false)}>
                 <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); pdfInputRef.current?.click() }}>
@@ -267,7 +273,7 @@ export function LibraryHome({ library, index, location, onIndexChange, onOpen }:
         <div className="lib-content">
           {!index.books.length ? (
             <div className="lib-empty">
-              <div className="lib-empty-art" aria-hidden="true">📖</div>
+              <div className="lib-empty-art" aria-hidden="true"><Icon name="book" size={40} /></div>
               <h2>Create your first publication</h2>
               <p className="muted">Turn a PDF catalogue into an interactive flipbook with slideshows, animations, buttons and links.</p>
               <div className="lib-empty-actions">
@@ -285,13 +291,13 @@ export function LibraryHome({ library, index, location, onIndexChange, onOpen }:
                   <button type="button" className="lib-cover" onClick={() => openBook(book, 'edit')} aria-label={`Edit ${book.title}`}>
                     {book.cover ? <img src={book.cover} alt="" /> : <span className="lib-cover-placeholder">{book.title.slice(0, 1).toUpperCase()}</span>}
                     <span className="lib-pages">{book.pageCount} page{book.pageCount === 1 ? '' : 's'}</span>
-                    {book.published && <span className="lib-live" title={book.published.url}>● Live</span>}
+                    {book.published && <span className="lib-live" title={book.published.url}><span className="lib-live-dot" />Live</span>}
                   </button>
                   <div className="lib-card-body">
                     <h3 title={book.title}>{book.title}</h3>
                     <div className="lib-chips">
                       <span className="chip">{book.category}</span>
-                      {book.folderId && folderName(book.folderId) && <span className="chip folder">📁 {folderName(book.folderId)}</span>}
+                      {book.folderId && folderName(book.folderId) && <span className="chip folder"><Icon name="folder" size={12} />{folderName(book.folderId)}</span>}
                     </div>
                     {book.description && <p className="lib-description">{book.description}</p>}
                     <span className="muted small">Edited {formatDate(book.updatedAt)}</span>
@@ -303,10 +309,10 @@ export function LibraryHome({ library, index, location, onIndexChange, onOpen }:
                     )}
                   </div>
                   <div className="lib-actions">
-                    <button type="button" onClick={() => openBook(book, 'edit')} aria-label={`Edit ${book.title}`} title="Edit">✎<span>Edit</span></button>
-                    <button type="button" onClick={() => openBook(book, 'preview')} aria-label={`Preview ${book.title}`} title="Preview">▶<span>Preview</span></button>
+                    <button type="button" onClick={() => openBook(book, 'edit')} aria-label={`Edit ${book.title}`} title="Edit"><Icon name="edit" /><span>Edit</span></button>
+                    <button type="button" onClick={() => openBook(book, 'preview')} aria-label={`Preview ${book.title}`} title="Preview"><Icon name="eye" /><span>Preview</span></button>
                     <div className="lib-export">
-                      <button type="button" aria-label={`Export ${book.title}`} aria-haspopup="menu" aria-expanded={exportMenu === book.id} title="Export" onClick={() => setExportMenu((current) => (current === book.id ? null : book.id))}>⇩<span>Export</span></button>
+                      <button type="button" aria-label={`Export ${book.title}`} aria-haspopup="menu" aria-expanded={exportMenu === book.id} title="Export" onClick={() => setExportMenu((current) => (current === book.id ? null : book.id))}><Icon name="download" /><span>Export</span></button>
                       {exportMenu === book.id && (
                         <div className="lib-menu small-menu" role="menu" onMouseLeave={() => setExportMenu(null)}>
                           <button type="button" role="menuitem" onClick={() => exportBook(book, 'html')}><strong>HTML file</strong><span>One self-contained file</span></button>
@@ -314,10 +320,10 @@ export function LibraryHome({ library, index, location, onIndexChange, onOpen }:
                         </div>
                       )}
                     </div>
-                    <button type="button" className={book.published ? 'live' : ''} onClick={() => setPublishing(book.id)} aria-label={`Publish ${book.title} online`} title={book.published ? 'Online — update or unpublish' : 'Publish online'}>🌐<span>{book.published ? 'Online' : 'Publish'}</span></button>
-                    <button type="button" onClick={() => void run('Duplicating…', async () => { const copy = await library.duplicateBook(book.id); return `Created “${copy.title}”` })} aria-label={`Duplicate ${book.title}`} title="Duplicate">⧉<span>Copy</span></button>
-                    <button type="button" onClick={() => setDialog({ kind: 'settings', book })} aria-label={`Settings for ${book.title}`} title="Settings">⚙<span>Settings</span></button>
-                    <button type="button" className="danger" onClick={() => setDialog({ kind: 'delete', book })} aria-label={`Delete ${book.title}`} title="Delete">🗑<span>Delete</span></button>
+                    <button type="button" className={book.published ? 'live' : ''} onClick={() => setPublishing(book.id)} aria-label={`Publish ${book.title} online`} title={book.published ? 'Online — update or unpublish' : 'Publish online'}><Icon name="globe" /><span>{book.published ? 'Online' : 'Publish'}</span></button>
+                    <button type="button" onClick={() => void run('Duplicating…', async () => { const copy = await library.duplicateBook(book.id); return `Created “${copy.title}”` })} aria-label={`Duplicate ${book.title}`} title="Duplicate"><Icon name="copy" /><span>Copy</span></button>
+                    <button type="button" onClick={() => setDialog({ kind: 'settings', book })} aria-label={`Settings for ${book.title}`} title="Settings"><Icon name="settings" /><span>Settings</span></button>
+                    <button type="button" className="danger" onClick={() => setDialog({ kind: 'delete', book })} aria-label={`Delete ${book.title}`} title="Delete"><Icon name="trash" /><span>Delete</span></button>
                   </div>
                 </article>
               ))}

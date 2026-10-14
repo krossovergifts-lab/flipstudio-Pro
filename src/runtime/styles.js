@@ -261,3 +261,46 @@ export function resolveAction(overlay) {
   if (link.type === 'popup') return overlay.popup ? { kind: 'popup' } : null
   return null
 }
+
+/**
+ * Where a video plays from. YouTube and Vimeo links become privacy-friendly
+ * embeds; direct .mp4/.webm/.mov links and uploaded files play in <video>.
+ * Returns null for anything that is not a usable video address.
+ */
+export function videoSource(url, options) {
+  const o = options || {}
+  const value = typeof url === 'string' ? url.trim() : ''
+  if (!value) return null
+  if (/^(data:video\/|blob:)/i.test(value)) return { kind: 'file', src: value }
+  let parsed = null
+  try { parsed = new URL(/^[a-z][a-z0-9+.-]*:/i.test(value) ? value : 'https://' + value) } catch (error) { void error; return null }
+  if (!/^https?:$/.test(parsed.protocol)) return null
+  const host = parsed.hostname.replace(/^www\.|^m\./, '')
+  let youtube = ''
+  if (host === 'youtu.be') youtube = parsed.pathname.slice(1).split('/')[0]
+  else if (host === 'youtube.com' || host === 'youtube-nocookie.com' || host === 'music.youtube.com') {
+    const parts = parsed.pathname.split('/').filter(Boolean)
+    youtube = parsed.searchParams.get('v') || (['embed', 'shorts', 'live', 'v'].indexOf(parts[0]) >= 0 ? parts[1] || '' : '')
+  }
+  if (youtube && /^[\w-]{6,20}$/.test(youtube)) {
+    const q = ['rel=0', 'modestbranding=1', 'playsinline=1', 'enablejsapi=1']
+    if (o.autoplay) q.push('autoplay=1', 'mute=1')
+    else if (o.muted) q.push('mute=1')
+    if (o.loop) q.push('loop=1', 'playlist=' + youtube)
+    if (o.controls === false) q.push('controls=0')
+    const start = Number(parsed.searchParams.get('t') || parsed.searchParams.get('start')) || 0
+    if (start > 0) q.push('start=' + Math.floor(start))
+    return { kind: 'youtube', id: youtube, src: 'https://www.youtube-nocookie.com/embed/' + youtube + '?' + q.join('&'), thumb: 'https://i.ytimg.com/vi/' + youtube + '/hqdefault.jpg' }
+  }
+  if (host === 'vimeo.com' || host === 'player.vimeo.com') {
+    const match = parsed.pathname.match(/(\d{5,})/)
+    if (!match) return null
+    const q = ['dnt=1', 'playsinline=1', 'title=0', 'byline=0', 'portrait=0']
+    if (o.autoplay) q.push('autoplay=1', 'muted=1')
+    else if (o.muted) q.push('muted=1')
+    if (o.loop) q.push('loop=1')
+    return { kind: 'vimeo', id: match[1], src: 'https://player.vimeo.com/video/' + match[1] + '?' + q.join('&') }
+  }
+  if (/\.(mp4|webm|ogv|mov|m4v)(\?|#|$)/i.test(parsed.pathname + parsed.search)) return { kind: 'file', src: parsed.href }
+  return null
+}

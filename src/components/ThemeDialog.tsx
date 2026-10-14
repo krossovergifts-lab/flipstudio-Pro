@@ -5,6 +5,7 @@ import { fileToDataUrl, formatBytes } from '../lib/assets'
 import { createFlipSound, FLIP_PRESETS, SOUND_PRESETS } from '../runtime/theme.js'
 import { ColorField } from './ColorField'
 import { PreviewPane } from './PreviewPane'
+import { Icon, type IconName } from './Icon'
 import './ThemeDialog.css'
 
 export interface ThemeDialogProps {
@@ -13,8 +14,12 @@ export interface ThemeDialogProps {
   initialTab?: TabId
   onCancel: () => void
   /** `bookmarks` maps page id → bookmark (undefined removes it). */
-  onApply: (reader: ReaderSettings, newAssets: ProjectAsset[], bookmarks: Record<string, PageBookmark | undefined>) => void
+  onApply: (reader: ReaderSettings, newAssets: ProjectAsset[], bookmarks: Record<string, PageBookmark | undefined>, info: { description: string; keywords: string }) => void
 }
+
+const LANGUAGES: Array<[string, string]> = [['en', 'English'], ['ar', 'Arabic'], ['fr', 'French'], ['de', 'German'], ['es', 'Spanish'], ['it', 'Italian'], ['ru', 'Russian'], ['zh', 'Chinese'], ['hi', 'Hindi'], ['ml', 'Malayalam'], ['ur', 'Urdu'], ['tr', 'Turkish'], ['pt', 'Portuguese'], ['nl', 'Dutch']]
+/** Settings that describe the publication rather than its look: kept by "Reset to default". */
+const KEEP_ON_RESET: Array<keyof ReaderSettings> = ['analyticsId', 'analyticsConsent', 'seoTitle', 'language', 'noIndex', 'pageLinks', 'logoAssetId', 'logoLink', 'downloadAssetId', 'downloadName']
 
 const DEFAULT_READER: ReaderSettings = {
   backgroundMode: 'solid',
@@ -59,16 +64,17 @@ const THEMES: ThemePreset[] = [
 
 const TAB_COLORS = ['#c2410c', '#0f766e', '#7c3aed', '#be123c', '#1d4ed8', '#a16207', '#15803d', '#475569']
 
-type TabId = 'theme' | 'toolbar' | 'turn' | 'sound' | 'bookmarks' | 'auto' | 'share' | 'brand'
-const TABS: Array<{ id: TabId; label: string; icon: string }> = [
-  { id: 'theme', label: 'Theme & background', icon: '🎨' },
-  { id: 'toolbar', label: 'Toolbar & buttons', icon: '🧰' },
-  { id: 'turn', label: 'Page turn', icon: '📖' },
-  { id: 'sound', label: 'Page sound', icon: '🔊' },
-  { id: 'bookmarks', label: 'Bookmarks & contents', icon: '🔖' },
-  { id: 'auto', label: 'Auto flip', icon: '⏯' },
-  { id: 'share', label: 'Share & download', icon: '📤' },
-  { id: 'brand', label: 'Logo & title', icon: '🏷' },
+type TabId = 'theme' | 'toolbar' | 'turn' | 'sound' | 'bookmarks' | 'auto' | 'share' | 'brand' | 'seo'
+const TABS: Array<{ id: TabId; label: string; icon: IconName }> = [
+  { id: 'theme', label: 'Theme & background', icon: 'palette' },
+  { id: 'toolbar', label: 'Toolbar & buttons', icon: 'toolbar' },
+  { id: 'turn', label: 'Page turn', icon: 'book' },
+  { id: 'sound', label: 'Page sound', icon: 'sound' },
+  { id: 'bookmarks', label: 'Bookmarks & contents', icon: 'bookmark' },
+  { id: 'auto', label: 'Auto flip', icon: 'play' },
+  { id: 'share', label: 'Share & download', icon: 'share' },
+  { id: 'brand', label: 'Logo & title', icon: 'tag' },
+  { id: 'seo', label: 'SEO & analytics', icon: 'chart' },
 ]
 
 function swatchCss(reader: ReaderSettings): string {
@@ -93,6 +99,7 @@ export function ThemeDialog({ project, initialTab = 'theme', onCancel, onApply }
   const [newAssets, setNewAssets] = useState<Record<string, ProjectAsset>>({})
   const [problem, setProblem] = useState('')
   const [addPage, setAddPage] = useState(1)
+  const [info, setInfo] = useState({ description: project.description ?? '', keywords: project.keywords ?? '' })
   const [preview, setPreview] = useState({ draft, marks })
   const sampleRef = useRef<ReturnType<typeof createFlipSound> | null>(null)
   const set = (patch: Partial<ReaderSettings>) => setDraft((current) => ({ ...current, ...patch }))
@@ -169,7 +176,9 @@ export function ThemeDialog({ project, initialTab = 'theme', onCancel, onApply }
       const cleaned = next && next.label.trim() ? { ...next, label: next.label.trim() } : undefined
       if (JSON.stringify(cleaned ?? null) !== JSON.stringify(page.bookmark ?? null)) changes[page.id] = cleaned
     }
-    onApply(draft, Object.values(newAssets).filter((asset) => used.has(asset.id)), changes)
+    const analyticsId = (draft.analyticsId ?? '').trim().toUpperCase()
+    const reader: ReaderSettings = { ...draft, analyticsId: analyticsId || undefined, seoTitle: draft.seoTitle?.trim() || undefined }
+    onApply(reader, Object.values(newAssets).filter((asset) => used.has(asset.id)), changes, { description: info.description.trim(), keywords: info.keywords.trim() })
   }
 
   const bookmarkRows = project.pages.map((page, index) => ({ page, index })).filter(({ page }) => marks[page.id])
@@ -194,7 +203,7 @@ export function ThemeDialog({ project, initialTab = 'theme', onCancel, onApply }
             <span>How readers see this publication — in Preview, exports and online.</span>
           </div>
           <div className="theme-head-actions">
-            <button type="button" className="link-button" onClick={() => setDraft({ ...DEFAULT_READER })}>Reset to default</button>
+            <button type="button" className="link-button" onClick={() => setDraft((current) => ({ ...DEFAULT_READER, ...Object.fromEntries(KEEP_ON_RESET.filter((key) => current[key] !== undefined).map((key) => [key, current[key]])) }))}>Reset to default</button>
             <button type="button" onClick={onCancel}>Cancel</button>
             <button type="button" className="primary" onClick={apply}>Apply design</button>
           </div>
@@ -203,7 +212,7 @@ export function ThemeDialog({ project, initialTab = 'theme', onCancel, onApply }
           <nav className="theme-nav" aria-label="Design sections">
             {TABS.map((item) => (
               <button key={item.id} type="button" className={tab === item.id ? 'active' : ''} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)}>
-                <span aria-hidden="true">{item.icon}</span>{item.label}
+                <Icon name={item.icon} />{item.label}
               </button>
             ))}
           </nav>
@@ -398,6 +407,63 @@ export function ThemeDialog({ project, initialTab = 'theme', onCancel, onApply }
                     )}
                   </div>
                   <small>Shows a download button for this PDF. Online, keep it under 25 MB (Cloudflare limit) — a “smallest size” PDF export is ideal.</small>
+                </section>
+              </>
+            )}
+
+            {tab === 'seo' && (
+              <>
+                <section>
+                  <h3>Google search</h3>
+                  <label className="theme-text">
+                    Title in Google
+                    <input value={draft.seoTitle ?? ''} maxLength={70} onChange={(event) => set({ seoTitle: event.target.value })} placeholder={project.title} />
+                  </label>
+                  <small className="theme-count">{(draft.seoTitle || project.title).length} / 60 characters recommended</small>
+                  <label className="theme-text">
+                    Description
+                    <textarea rows={3} maxLength={300} value={info.description} onChange={(event) => setInfo((current) => ({ ...current, description: event.target.value }))} placeholder="e.g. 250 premium corporate gifts with logo printing — drinkware, bags, tech and more." />
+                  </label>
+                  <small className="theme-count">{info.description.length} / 155 characters recommended</small>
+                  <label className="theme-text">
+                    Keywords
+                    <input value={info.keywords} onChange={(event) => setInfo((current) => ({ ...current, keywords: event.target.value }))} placeholder="corporate gifts, promotional gifts, Dubai" />
+                  </label>
+                  <label className="theme-text">
+                    Language
+                    <select value={draft.language ?? 'en'} onChange={(event) => set({ language: event.target.value })}>
+                      {LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+                    </select>
+                  </label>
+                  <div className="theme-serp" aria-label="Google result preview">
+                    <span className="theme-serp-url">{'yourcatalogue.pages.dev'}</span>
+                    <span className="theme-serp-title">{draft.seoTitle || project.title}</span>
+                    <span className="theme-serp-desc">{info.description || 'Add a description so people know what is inside before they click.'}</span>
+                  </div>
+                  <Toggle label="Hide from Google and other search engines" hint="For private or draft catalogues shared only by link" checked={Boolean(draft.noIndex)} onChange={(noIndex) => set({ noIndex })} />
+                  <Toggle label="Links can open on a page" hint="The address follows the page (…/#page=12) and Share can link to the current page" checked={draft.pageLinks !== false} onChange={(pageLinks) => set({ pageLinks })} />
+                  <small>Every page's text, bookmarks and product links are included for search engines, with a sitemap.xml and robots.txt on your website.</small>
+                </section>
+                <section>
+                  <h3>Google Analytics</h3>
+                  <label className="theme-text">
+                    Measurement ID
+                    <input value={draft.analyticsId ?? ''} onChange={(event) => set({ analyticsId: event.target.value.replace(/\s+/g, '') })} placeholder="G-XXXXXXXXXX" spellCheck={false} />
+                  </label>
+                  {draft.analyticsId && !/^G-[A-Z0-9]{4,16}$/i.test(draft.analyticsId) && <p className="theme-error">That does not look like a GA4 Measurement ID. It starts with “G-”.</p>}
+                  <small>In Google Analytics: Admin → Data streams → Web → your site → Measurement ID.</small>
+                  <Toggle label="Ask visitors first (cookie notice)" hint="Counts are anonymous until a visitor accepts" checked={Boolean(draft.analyticsConsent)} onChange={(analyticsConsent) => set({ analyticsConsent })} />
+                  <div className="theme-tracked">
+                    <strong>Reported to Google Analytics</strong>
+                    <ul>
+                      <li>Page views — each page or spread, so you see the most-read products</li>
+                      <li>Searches and the words people search for</li>
+                      <li>Link, WhatsApp and product pop-up clicks</li>
+                      <li>Shares, PDF downloads, bookmarks, auto flip</li>
+                      <li>Video plays and completions</li>
+                    </ul>
+                  </div>
+                  <small>Works on the published website. Preview and the editor never send data.</small>
                 </section>
               </>
             )}

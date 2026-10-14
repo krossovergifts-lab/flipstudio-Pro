@@ -56,6 +56,9 @@ export interface SlideImage {
   /** Legacy/remote source, used only when no asset is set. */
   src?: string
   alt?: string
+  /** A video slide: an uploaded video file (assetId) or a YouTube / Vimeo / .mp4 link. */
+  kind?: 'image' | 'video'
+  videoUrl?: string
 }
 
 export interface ProjectAnimation extends EngineAnimation {
@@ -112,6 +115,9 @@ export interface OverlayObject {
   showIndicators?: SlideIndicators
   pauseOnHover?: boolean
   startIndex?: number
+  /** Video objects: YouTube / Vimeo / .mp4 link (used when no file is uploaded), sound off. */
+  videoUrl?: string
+  muted?: boolean
 }
 
 export interface PageDefinition {
@@ -197,6 +203,16 @@ export interface ReaderSettings {
   downloadName?: string
   /** Centre a lone cover / last page instead of leaving it on one side of the spread. */
   centerSinglePages?: boolean
+  /** Google Analytics 4 measurement ID (G-XXXXXXX) for published / exported copies. */
+  analyticsId?: string
+  /** Ask visitors before counting them (cookie notice + Google consent mode). */
+  analyticsConsent?: boolean
+  /** Search engines: title shown in Google (defaults to the publication title), language, and hide from search. */
+  seoTitle?: string
+  language?: string
+  noIndex?: boolean
+  /** Readers' address bar follows the page (…/#page=12), so links can open on a page. */
+  pageLinks?: boolean
 }
 
 export interface ProjectState {
@@ -376,12 +392,20 @@ function normalizeOverlay(overlay: Partial<OverlayObject>, fallbackId: string): 
   if (overlay.popup && typeof overlay.popup === 'object') normalized.popup = { ...overlay.popup, title: overlay.popup.title ?? '', description: overlay.popup.description ?? '' }
   if (overlay.link && typeof overlay.link === 'object' && overlay.link.type) normalized.link = { ...overlay.link }
   else if (overlay.url) normalized.link = { type: 'url', value: overlay.url, newTab: true }
+  if (type === 'video') {
+    if (typeof overlay.videoUrl === 'string' && overlay.videoUrl) normalized.videoUrl = overlay.videoUrl
+    normalized.autoplay = overlay.autoplay ?? false
+    normalized.looping = overlay.looping ?? false
+    normalized.muted = overlay.muted ?? false
+    normalized.showControls = overlay.showControls ?? true
+  }
   if (type === 'slideshow' || overlay.slides?.length) {
     normalized.slides = (overlay.slides ?? []).map((slide, index) => ({
       id: slide.id ?? `${normalized.id}-slide-${index + 1}`,
       assetId: slide.assetId,
       src: slide.src,
       alt: slide.alt,
+      ...(slide.kind === 'video' ? { kind: 'video' as const, videoUrl: typeof slide.videoUrl === 'string' ? slide.videoUrl : undefined } : {}),
     }))
     normalized.autoplay = overlay.autoplay ?? true
     normalized.looping = overlay.looping ?? true
@@ -749,7 +773,9 @@ export function buildPublicationData(
           : undefined,
         fit: overlay.fit,
         crop: overlay.crop,
-        slides: overlay.slides?.map((slide) => ({ id: slide.id, src: url(slide), alt: slide.alt })),
+        slides: overlay.slides?.map((slide) => ({ id: slide.id, src: slide.kind === 'video' && !slide.assetId ? slide.videoUrl ?? '' : url(slide), alt: slide.alt, kind: slide.kind === 'video' ? 'video' : undefined })),
+        videoUrl: overlay.type === 'video' && !overlay.assetId ? overlay.videoUrl : undefined,
+        muted: overlay.type === 'video' ? overlay.muted : undefined,
         autoplay: overlay.autoplay,
         looping: overlay.looping,
         duration: overlay.duration,
@@ -790,18 +816,88 @@ export interface PublicationMeta {
   /** Absolute URL of the share image (1200×630 JPEG). */
   image?: string
   siteName?: string
+  /** Last update (ISO date) for search engines. */
+  modified?: string
+}
+
+const GA_ID = /^G-[A-Z0-9]{4,16}$/i
+
+/** Google Analytics 4 tag. Page views are sent by the reader (one per page or spread), so the tag does not send its own. */
+export function analyticsTag(reader: PublicationData['reader']): string {
+  const id = String(reader?.analyticsId ?? '').trim().toUpperCase()
+  if (!GA_ID.test(id)) return ''
+  const consent = reader?.analyticsConsent
+    ? `var fsGranted=false;try{fsGranted=localStorage.getItem('fs-consent')==='granted'}catch(e){}gtag('consent','default',{analytics_storage:fsGranted?'granted':'denied',ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied'});`
+    : ''
+  return `    <script async src="https://www.googletagmanager.com/gtag/js?id=${id}"></script>
+    <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}${consent}gtag('js',new Date());gtag('config','${id}',{send_page_view:false});</script>
+`
+}
+
+/** Plain text of one page (PDF text plus text objects), for search engines and screen readers. */
+export function pagePlainText(page: PublicationData['pages'][number]): string {
+  let text = ''
+  for (const item of page.text ?? []) text += item.s + (item.eol ? '\n' : /\s$/.test(item.s) ? '' : ' ')
+  return text.replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').trim()
+}
+
+/**
+ * Hidden-from-view but crawlable copy of the publication: title, description, every
+ * page's text, product pop-ups and links. Search engines index the catalogue's words
+ * and follow its product links; screen readers get the same content.
+ */
+export function seoContent(data: PublicationData, meta?: PublicationMeta): string {
+  const parts: string[] = []
+  parts.push(`<h1>${escapeHtml(data.reader?.seoTitle || data.title)}</h1>`)
+  if (meta?.description) parts.push(`<p>${escapeHtml(meta.description)}</p>`)
+  data.pages.forEach((page, index) => {
+    const lines: string[] = []
+    const heading = page.bookmark?.label ? `${page.bookmark.label} — page ${index + 1}` : `Page ${index + 1}`
+    const text = pagePlainText(page).slice(0, 6000)
+    if (text) lines.push(`<p>${escapeHtml(text).replace(/\n/g, '<br>')}</p>`)
+    for (const overlay of page.overlays) {
+      if ((overlay.type === 'text' || overlay.type === 'button') && overlay.label) lines.push(`<p>${escapeHtml(overlay.label)}</p>`)
+      if (overlay.popup?.title) lines.push(`<h3>${escapeHtml(overlay.popup.title)}</h3>${overlay.popup.price ? `<p>${escapeHtml(overlay.popup.price)}</p>` : ''}${overlay.popup.description ? `<p>${escapeHtml(overlay.popup.description)}</p>` : ''}`)
+      const link = overlay.link?.type === 'url' ? String(overlay.link.value ?? '') : ''
+      if (/^https?:\/\//i.test(link)) lines.push(`<a href="${escapeHtml(link)}">${escapeHtml(overlay.label || link)}</a>`)
+      if (overlay.type === 'image' && overlay.label && !/\.(png|jpe?g|webp|gif|svg)$/i.test(overlay.label)) lines.push(`<p>${escapeHtml(overlay.label)}</p>`)
+    }
+    if (lines.length) parts.push(`<section id="seo-page-${index + 1}"><h2>${escapeHtml(heading)}</h2>${lines.join('')}</section>`)
+  })
+  return `    <div class="fs-seo">\n      ${parts.join('\n      ')}\n    </div>\n`
+}
+
+function structuredData(data: PublicationData, meta: PublicationMeta): string {
+  const json: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'Book',
+    name: data.reader?.seoTitle || data.title,
+    bookFormat: 'https://schema.org/EBook',
+    numberOfPages: data.pages.length,
+    inLanguage: data.reader?.language || 'en',
+  }
+  if (meta.description) json.description = meta.description
+  if (meta.keywords) json.keywords = meta.keywords
+  if (meta.url) json.url = meta.url
+  if (meta.image) json.image = meta.image
+  if (meta.modified) json.dateModified = meta.modified
+  if (meta.siteName) json.publisher = { '@type': 'Organization', name: meta.siteName }
+  const sections = data.pages.map((page, index) => (page.bookmark?.label ? { '@type': 'Chapter', name: page.bookmark.label, pageStart: index + 1, ...(meta.url ? { url: `${meta.url}#page=${index + 1}` } : {}) } : null)).filter(Boolean)
+  if (sections.length) json.hasPart = sections
+  return `    <script type="application/ld+json">${JSON.stringify(json).replace(/</g, '\\u003c')}</script>\n`
 }
 
 function metaTags(data: PublicationData, meta?: PublicationMeta): string {
-  if (!meta) return ''
   const tags: string[] = []
+  if (data.reader?.noIndex) tags.push('    <meta name="robots" content="noindex, nofollow" />')
+  if (!meta) return tags.length ? tags.join('\n') + '\n' : ''
   const add = (attr: 'name' | 'property', key: string, value?: string) => {
     if (value) tags.push(`    <meta ${attr}="${key}" content="${escapeHtml(value)}" />`)
   }
   add('name', 'description', meta.description)
   add('name', 'keywords', meta.keywords)
   add('property', 'og:type', 'book')
-  add('property', 'og:title', data.title)
+  add('property', 'og:title', data.reader?.seoTitle || data.title)
   add('property', 'og:description', meta.description)
   add('property', 'og:url', meta.url)
   add('property', 'og:site_name', meta.siteName)
@@ -812,11 +908,12 @@ function metaTags(data: PublicationData, meta?: PublicationMeta): string {
     add('property', 'og:image:alt', data.title)
   }
   add('name', 'twitter:card', meta.image ? 'summary_large_image' : 'summary')
-  add('name', 'twitter:title', data.title)
+  add('name', 'twitter:title', data.reader?.seoTitle || data.title)
   add('name', 'twitter:description', meta.description)
   add('name', 'twitter:image', meta.image)
   if (meta.url) tags.push(`    <link rel="canonical" href="${escapeHtml(meta.url)}" />`)
-  return tags.join('\n') + '\n'
+  if (data.reader?.language) add('property', 'og:locale', data.reader.language.replace('-', '_'))
+  return tags.join('\n') + '\n' + (data.reader?.noIndex ? '' : structuredData(data, meta))
 }
 
 export function buildPublicationHtml(data: PublicationData, fontCss = '', meta?: PublicationMeta): string {
@@ -826,15 +923,17 @@ export function buildPublicationHtml(data: PublicationData, fontCss = '', meta?:
     .replace(new RegExp(String.fromCharCode(0x2028), 'g'), '\\u2028')
     .replace(new RegExp(String.fromCharCode(0x2029), 'g'), '\\u2029')
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${escapeHtml(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(data.reader?.language ?? '') ? data.reader!.language! : 'en')}">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="generator" content="FlipStudio Pro" />
-    <title>${escapeHtml(data.title)}</title>
-${metaTags(data, meta)}    <style>
+    <meta name="theme-color" content="${background}" />
+    <title>${escapeHtml(data.reader?.seoTitle || data.title)}</title>
+${metaTags(data, meta)}${analyticsTag(data.reader)}    <style>
       html, body { margin: 0; height: 100%; background: ${background}; }
       #publication { height: 100vh; height: 100dvh; }
+      .fs-seo { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: normal; border: 0; }
 ${publicationCss}
 ${readerCss}
     </style>
@@ -844,7 +943,7 @@ ${fontCss}
   </head>
   <body>
     <div id="publication" role="main" aria-label="${escapeHtml(data.title)}"></div>
-    <noscript><p style="color:#fff;padding:16px">This publication needs JavaScript to display its pages.</p></noscript>
+${seoContent(data, meta)}    <noscript><p style="color:#fff;padding:16px">This publication needs JavaScript to display its pages.</p></noscript>
     <script type="application/json" id="fs-data">${json}</script>
     <script>/* ${PAGE_FLIP_NOTICE} */
 ${inlineScript(pageFlipSource)}</script>
@@ -854,7 +953,7 @@ ${inlineScript(pageFlipSource)}</script>
 ${inlineScript(RUNTIME_SCRIPT)}
   var data = JSON.parse(document.getElementById('fs-data').textContent);
   var PageFlip = window.St && window.St.PageFlip ? window.St.PageFlip : null;
-  window.flipstudioPublication = mountPublication(document.getElementById('publication'), data, { PageFlip: PageFlip, showTimeline: false });
+  window.flipstudioPublication = mountPublication(document.getElementById('publication'), data, { PageFlip: PageFlip, showTimeline: false, standalone: true });
 })();
     </script>
   </body>
@@ -944,6 +1043,7 @@ const EXTENSIONS: Record<string, string> = {
   'font/otf': 'otf',
   'video/mp4': 'mp4',
   'video/webm': 'webm',
+  'video/quicktime': 'mov',
   'audio/mpeg': 'mp3',
   'audio/wav': 'wav',
   'audio/ogg': 'ogg',

@@ -1,3 +1,4 @@
+import { Icon } from './Icon'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Library } from '../lib/library'
 import type { ProjectState } from '../lib/project'
@@ -310,7 +311,7 @@ function ChooseSite({ onPick, onCancel, hasSites }: { onPick: (kind: 'setup-page
     <div className="publish-body">
       <p className="publish-intro">Where should this publication go online?</p>
       <button type="button" className="publish-choice" onClick={() => onPick('setup-single')}>
-        <span className="publish-choice-icon" aria-hidden="true">🌐</span>
+        <span className="publish-choice-icon" aria-hidden="true"><Icon name="globe" size={20} /></span>
         <span className="publish-choice-text">
           <strong>Its own brand-free website <em>Best for the main catalogue</em></strong>
           <span>One catalogue at its own address — safe for resellers to share. Free on Cloudflare Pages.</span>
@@ -319,7 +320,7 @@ function ChooseSite({ onPick, onCancel, hasSites }: { onPick: (kind: 'setup-page
         <span className="publish-choice-arrow" aria-hidden="true">›</span>
       </button>
       <button type="button" className="publish-choice" onClick={() => onPick('setup-pages')}>
-        <span className="publish-choice-icon" aria-hidden="true">📚</span>
+        <span className="publish-choice-icon" aria-hidden="true"><Icon name="book" size={20} /></span>
         <span className="publish-choice-text">
           <strong>Bookshelf on GitHub Pages</strong>
           <span>Many publications on one site. The address shows your GitHub name.</span>

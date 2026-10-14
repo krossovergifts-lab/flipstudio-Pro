@@ -7,7 +7,7 @@ import {
   type SlideshowController,
 } from '../runtime/engine.js'
 import type { OverlayObject, ProjectState } from '../lib/project'
-import { cropStyle } from '../runtime/styles.js'
+import { cropStyle, videoSource } from '../runtime/styles.js'
 import { resolveSource } from '../lib/project'
 
 interface SlideshowViewProps {
@@ -79,7 +79,16 @@ export function SlideshowView({ overlay, assets, playing, onController, onIndexC
         data-transition={overlay.transition ?? 'fade'}
         style={{ '--fs-transition': `${slideTransitionMs(overlay)}ms` } as React.CSSProperties}
       >
-        {slides.map((slide, index) => (
+        {slides.map((slide, index) => slide.kind === 'video' ? (
+          <div key={slide.id} className={`${slideClassName(index, view.index, view.previous, view.direction)} ${fit} fs-video`} data-slide-index={index}>
+            {slide.assetId && assets[slide.assetId] ? (
+              <video className={`fs-video-el ${fit}`} src={assets[slide.assetId].dataUrl} muted preload="metadata" />
+            ) : videoSource(slide.videoUrl)?.thumb ? (
+              <img className="editor-video-thumb" src={videoSource(slide.videoUrl)!.thumb} alt="" draggable={false} />
+            ) : null}
+            <span className="editor-video-badge"><span className="fs-video-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" /></svg></span></span>
+          </div>
+        ) : (
           <img
             key={slide.id}
             className={`${slideClassName(index, view.index, view.previous, view.direction)} ${fit}`}

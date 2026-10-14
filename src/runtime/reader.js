@@ -1,5 +1,5 @@
 import { createClock, createSlideshowController, overlayStyle, sampleFrames, slideClassName, slideTransitionMs, timelineDuration, timelineLoops } from './engine.js'
-import { HOTSPOT_MARKERS, cropStyle, frameStyle, resolveAction, skinClassName, skinStyle, styleFor } from './styles.js'
+import { HOTSPOT_MARKERS, cropStyle, frameStyle, resolveAction, skinClassName, skinStyle, styleFor, videoSource } from './styles.js'
 import { createFlipSound, flipSettings, themeVariables } from './theme.js'
 
 // FlipStudio Pro publication reader.
@@ -36,6 +36,27 @@ export function mountPublication(root, data, options) {
   const sound = createFlipSound(win, readerSettings.sound || 'paper', readerSettings.soundUrl)
   const storage = (() => { try { return win.localStorage } catch (error) { void error; return null } })()
   try { if (storage && storage.getItem('fs-sound-muted') === '1') sound.setMuted(true) } catch (error) { void error }
+  // ---------- analytics (Google Analytics 4) ----------
+  // The GA tag itself is in the published page's <head>; the reader reports what readers do.
+  const analyticsId = /^G-[A-Z0-9]{4,16}$/i.test(String(readerSettings.analyticsId || '').trim()) ? String(readerSettings.analyticsId).trim().toUpperCase() : ''
+  const track = (name, params) => {
+    const payload = Object.assign({ publication_title: data.title || '' }, params || {})
+    if (opts.onTrack) { try { opts.onTrack(name, payload) } catch (error) { void error } }
+    if (!opts.standalone || !analyticsId || typeof win.gtag !== 'function') return
+    try { win.gtag('event', name, payload) } catch (error) { void error }
+  }
+  // ---------- page links (…/#page=12) ----------
+  const pageLinks = !!opts.standalone && readerSettings.pageLinks !== false && pages.length > 1
+  const pageFromAddress = () => {
+    try {
+      const match = String(win.location.hash || '').match(/page=(\d+)/i) || String(win.location.search || '').match(/[?&]page=(\d+)/i)
+      return match ? Math.max(0, Math.min(pages.length - 1, Number(match[1]) - 1)) : -1
+    } catch (error) { void error; return -1 }
+  }
+  if (pageLinks) {
+    const linked = pageFromAddress()
+    if (linked >= 0) currentPage = linked
+  }
   const ZOOMS = [1, 2, 3]
   let zoom = 1
   let panX = 0
@@ -87,6 +108,8 @@ export function mountPublication(root, data, options) {
     share: '<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/>',
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
     mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+    more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
+    play: '<path d="M8 5.5v13l11-6.5z"/>',
   }
   const svgIcon = (icon) => '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' + ICONS[icon] + '</svg>'
   const setIcon = (button, icon, label) => {
@@ -164,6 +187,7 @@ export function mountPublication(root, data, options) {
   const emailButton = iconButton('email', 'mail', 'Email')
   const selectButton = iconButton('select-text', 'select', 'Select text', 'fs-reader-select', { 'aria-pressed': 'false' })
   const fullscreenButton = iconButton('fullscreen', 'full', 'Full screen', 'fs-reader-fullscreen')
+  const moreButton = iconButton('more', 'more', 'More', 'fs-more-btn', { 'aria-expanded': 'false', 'aria-haspopup': 'dialog' })
   const shareUrl = () => data.shareUrl || (/^https?:/i.test(String(win.location && win.location.href)) ? String(win.location.href).split('#')[0] : '')
   const many = pages.length > 2
 
@@ -178,7 +202,7 @@ export function mountPublication(root, data, options) {
   if (readerSettings.downloadUrl) rightGroup.append(downloadLink)
   if (readerSettings.share !== false) rightGroup.append(emailButton)
   if (textTools) rightGroup.append(selectButton)
-  rightGroup.append(fullscreenButton)
+  rightGroup.append(fullscreenButton, moreButton)
   toolsBar.append(leftGroup, centerGroup, rightGroup)
 
   // Animation timeline (editor Preview only; published books just play their animations)
@@ -199,18 +223,133 @@ export function mountPublication(root, data, options) {
   root.append(topBar, stage, toolsBar, bottomBar)
 
   // ---------- objects ----------
-  const createSlideshow = (overlay, el) => {
+  // ---------- video ----------
+  // Videos load and play only while their page is on screen, and stop when it is turned away.
+  const media = []
+  let shownPages = []
+  const pageShown = (index) => shownPages.indexOf(index) >= 0
+  const keepPointer = (el) => {
+    // Using the video's own controls must not start a page turn.
+    ;['pointerdown', 'mousedown', 'touchstart'].forEach((type) => el.addEventListener(type, (event) => event.stopPropagation(), { passive: true }))
+  }
+  const playQuietly = (video) => {
+    try {
+      const attempt = video.play()
+      // Browsers may block sound before the reader has clicked: retry muted.
+      if (attempt && attempt.catch) attempt.catch(() => { video.muted = true; const again = video.play(); if (again && again.catch) again.catch(() => undefined) })
+    } catch (error) { void error }
+  }
+  /**
+   * Builds a video player. `options.lite`: show a poster with a play button and
+   * load the YouTube/Vimeo player only when clicked (fast, no cookies before play).
+   */
+  const buildVideo = (url, options, label) => {
+    const o = options || {}
+    const fileLike = /^(data:video\/|blob:)/i.test(url) || (!/^https?:/i.test(url) && /\.(mp4|webm|ogv|mov|m4v)$/i.test(url))
+    const source = fileLike ? { kind: 'file', src: url } : videoSource(url, { autoplay: o.autoplay, muted: o.muted, loop: o.loop, controls: o.controls })
+    const box = make('div', 'fs-video')
+    if (!source) {
+      const empty = make('div', 'fs-placeholder')
+      empty.textContent = url ? 'This video link is not supported' : 'No video yet'
+      box.append(empty)
+      return { el: box, activate() {}, deactivate() {}, kind: 'none' }
+    }
+    let started = false
+    const report = (name) => track(name, { video_title: label || '', video_provider: source.kind, video_url: /^https?:/i.test(url) ? url : '' })
+    if (source.kind === 'file') {
+      const video = make('video', 'fs-video-el fs-fit-' + (o.fit || 'cover'), { preload: 'metadata', playsinline: '', 'webkit-playsinline': '' })
+      if (o.controls !== false) video.setAttribute('controls', '')
+      video.muted = !!o.muted
+      video.loop = !!o.loop
+      video.addEventListener('play', () => { if (!started) { started = true; report('video_start') } })
+      video.addEventListener('ended', () => report('video_complete'))
+      box.append(video)
+      return {
+        el: box,
+        kind: 'file',
+        video,
+        load() { if (!video.getAttribute('src')) video.setAttribute('src', source.src) },
+        activate() { this.load(); if (o.autoplay) playQuietly(video) },
+        deactivate() { if (!video.paused) video.pause() },
+      }
+    }
+    const frame = () => make('iframe', 'fs-video-frame', { title: label || 'Video', allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen', allowfullscreen: '', referrerpolicy: 'strict-origin-when-cross-origin' })
+    let iframe = null
+    const poster = make('button', 'fs-video-poster', { type: 'button', 'aria-label': 'Play video' + (label ? ': ' + label : '') })
+    if (source.thumb) poster.append(make('img', '', { src: source.thumb, alt: '', loading: 'lazy', draggable: 'false' }))
+    const playIcon = make('span', 'fs-video-play', { 'aria-hidden': 'true' })
+    playIcon.innerHTML = svgIcon('play')
+    poster.append(playIcon)
+    box.append(poster)
+    const open = (autoplay) => {
+      if (iframe) return
+      iframe = frame()
+      iframe.setAttribute('src', autoplay && source.src.indexOf('autoplay=1') < 0 ? source.src + '&autoplay=1' : source.src)
+      box.append(iframe)
+      box.classList.add('is-playing')
+      if (!started) { started = true; report('video_start') }
+    }
+    const close = () => {
+      if (!iframe) return
+      iframe.remove()
+      iframe = null
+      box.classList.remove('is-playing')
+    }
+    poster.addEventListener('click', (event) => { event.stopPropagation(); open(true); if (o.onPlay) o.onPlay() })
+    return { el: box, kind: source.kind, activate() { if (o.autoplay) open(false) }, deactivate: close }
+  }
+  const createVideoObject = (overlay, el, pageIndex) => {
+    const player = buildVideo(overlay.src || overlay.videoUrl || '', { autoplay: !!overlay.autoplay, muted: !!overlay.muted, loop: !!overlay.looping, controls: overlay.showControls !== false, fit: overlay.fit === 'contain' ? 'contain' : 'cover' }, overlay.label)
+    keepPointer(el)
+    el.append(player.el)
+    media.push({ page: pageIndex, activate: () => player.activate(), deactivate: () => player.deactivate() })
+  }
+
+  const createSlideshow = (overlay, el, pageIndex) => {
     const slides = overlay.slides || []
     const fit = 'fs-fit-' + (overlay.fit || 'cover')
     const wrap = make('div', 'fs-slides', { 'data-transition': overlay.transition || 'fade' })
     wrap.style.setProperty('--fs-transition', slideTransitionMs(overlay) + 'ms')
+    const players = []
+    let controller = null
     const images = slides.map((slide, index) => {
+      if (slide.kind === 'video') {
+        const player = buildVideo(slide.src || '', { muted: true, controls: true, fit: overlay.fit === 'contain' ? 'contain' : 'cover', onPlay: () => { if (controller) controller.hold(true) } }, slide.alt || overlay.label)
+        player.el.classList.add('fs-slide', fit)
+        player.el.setAttribute('data-slide-index', String(index))
+        if (player.video) {
+          player.video.removeAttribute('controls')
+          player.video.addEventListener('ended', () => { if (!controller) return; controller.hold(false); if (controller.playing) controller.next() })
+        }
+        players[index] = player
+        wrap.append(player.el)
+        return player.el
+      }
       const img = make('img', 'fs-slide ' + fit, { alt: slide.alt || overlay.label || 'Slide ' + (index + 1), draggable: 'false', 'data-slide-index': String(index) })
       if (slide.src) img.src = slide.src
       applyStyle(img, cropStyle(overlay))
       wrap.append(img)
       return img
     })
+    if (players.length) keepPointer(el)
+    let activeIndex = -1
+    // A video slide plays while it is the current slide and its page is on screen; the slideshow waits for it to end.
+    const syncSlideVideo = () => {
+      if (controller) controller.hold(false)
+      players.forEach((player, i) => {
+        if (!player) return
+        if (i === activeIndex && pageShown(pageIndex) && player.video) {
+          player.load()
+          player.video.muted = true
+          try { player.video.currentTime = 0 } catch (error) { void error }
+          if (controller) controller.hold(true)
+          playQuietly(player.video)
+        } else {
+          player.deactivate()
+        }
+      })
+    }
+    if (players.length) media.push({ page: pageIndex, activate: syncSlideVideo, deactivate: () => { players.forEach((player) => player && player.deactivate()); if (controller) controller.hold(false) } })
     el.append(wrap)
     if (!slides.length) {
       const empty = make('div', 'fs-placeholder')
@@ -243,11 +382,16 @@ export function mountPublication(root, data, options) {
       el.append(strip)
     }
     const render = (index, previous, direction) => {
-      images.forEach((img, i) => { img.className = slideClassName(i, index, previous, direction) + ' ' + fit })
+      images.forEach((img, i) => { img.className = slideClassName(i, index, previous, direction) + ' ' + fit + (players[i] ? ' fs-video' + (img.classList.contains('is-playing') ? ' is-playing' : '') : '') })
+      if (index !== activeIndex) {
+        activeIndex = index
+        if (players.length) syncSlideVideo()
+      }
       marks.forEach((mark, i) => mark.classList.toggle('is-active', i === index))
       el.setAttribute('data-slide', String(index))
     }
-    const controller = createSlideshowController(overlay, render)
+    controller = createSlideshowController(overlay, render)
+    activeIndex = controller.index
     controllers.push(controller)
     if (slides.length > 1 && overlay.showControls !== false) {
       const prev = make('button', 'fs-ss-nav fs-ss-prev', { type: 'button', 'aria-label': 'Previous slide' })
@@ -319,7 +463,10 @@ export function mountPublication(root, data, options) {
   const runAction = (action, overlay) => {
     if (!action) return
     if (action.kind === 'page') openPage(action.page)
-    else if (action.kind === 'popup' && overlay.popup) openPopup(overlay.popup)
+    else if (action.kind === 'popup' && overlay.popup) {
+      openPopup(overlay.popup)
+      track('view_item', { item_name: overlay.popup.title || overlay.label || '', price: overlay.popup.price || '' })
+    }
   }
 
   const buildSkin = (overlay, page) => {
@@ -353,6 +500,7 @@ export function mountPublication(root, data, options) {
         el.setAttribute('rel', 'noopener noreferrer')
       }
       el.setAttribute('data-action', 'link')
+      el.addEventListener('click', () => track('click', { link_url: action.href, link_text: overlay.label || '', outbound: /^https?:/i.test(action.href), page_number: pages.indexOf(page) + 1 }))
     } else if (action) {
       el.setAttribute('role', 'button')
       el.setAttribute('tabindex', '0')
@@ -376,8 +524,10 @@ export function mountPublication(root, data, options) {
         el.append(empty)
       }
     } else if (overlay.type === 'slideshow') {
-      createSlideshow(overlay, el)
-    } else if (overlay.type === 'video' || overlay.type === 'audio') {
+      createSlideshow(overlay, el, pages.indexOf(page))
+    } else if (overlay.type === 'video') {
+      createVideoObject(overlay, el, pages.indexOf(page))
+    } else if (overlay.type === 'audio') {
       if (overlay.src) {
         const media = make(overlay.type, '', { src: overlay.src, controls: '', preload: 'metadata' })
         media.style.width = '100%'
@@ -395,7 +545,7 @@ export function mountPublication(root, data, options) {
       el.append(tip)
     }
     applyStyle(el, overlayStyle(overlay, page, null))
-    if (overlay.type === 'image' || overlay.type === 'slideshow') applyStyle(el, frameStyle(overlay, page))
+    if (overlay.type === 'image' || overlay.type === 'slideshow' || overlay.type === 'video') applyStyle(el, frameStyle(overlay, page))
     animated[overlay.id] = { el, overlay, page }
     return el
   }
@@ -532,8 +682,45 @@ export function mountPublication(root, data, options) {
     root.setAttribute('data-current-page', String(currentPage))
     markTabs()
   }
+  /** Starts videos on the pages now on screen and stops the rest. */
+  const syncMedia = () => {
+    shownPages = visiblePages()
+    media.forEach((item) => {
+      try {
+        if (pageShown(item.page)) item.activate()
+        else item.deactivate()
+      } catch (error) { void error }
+    })
+  }
+  let viewTimer = 0
+  let lastViewed = ''
+  const reportPageView = () => {
+    const spread = visiblePages()
+    const first = spread[0] + 1
+    const last = spread[spread.length - 1] + 1
+    const key = first + '-' + last
+    if (key === lastViewed) return
+    lastViewed = key
+    const label = first === last ? 'Page ' + first : 'Pages ' + first + '–' + last
+    let location = ''
+    try { location = String(win.location.href).split('#')[0] + (first > 1 ? '#page=' + first : '') } catch (error) { void error }
+    track('page_view', { page_title: (data.title || 'Catalogue') + ' · ' + label, page_location: location, page_number: first, page_label: label, section: (sections[currentSection()] || {}).label || '' })
+  }
+  const updateAddress = () => {
+    if (!pageLinks) return
+    try {
+      const first = visiblePages()[0] + 1
+      const base = String(win.location.pathname || '') + String(win.location.search || '').replace(/([?&])page=\d+&?/i, '$1').replace(/[?&]$/, '')
+      const next = first > 1 ? base + '#page=' + first : base
+      if (String(win.location.pathname) + String(win.location.search) + String(win.location.hash) !== next) win.history.replaceState(win.history.state, '', next)
+    } catch (error) { void error }
+  }
   const onPageOpened = () => {
     updateCount()
+    syncMedia()
+    updateAddress()
+    win.clearTimeout(viewTimer)
+    viewTimer = win.setTimeout(reportPageView, 700)
     loadPageImages()
     layoutTabs()
     centerBook()
@@ -776,7 +963,7 @@ export function mountPublication(root, data, options) {
   }
   /** Places the tab rail along the right edge of the visible page(s), in book coordinates. */
   const layoutTabs = () => {
-    if (!sections.length || readerSettings.tabs === false || !book) { tabRail.hidden = true; return }
+    if (!sections.length || readerSettings.tabs === false || !book || root.classList.contains('fs-compact')) { tabRail.hidden = true; return }
     let rect = null
     try { rect = book.getBoundsRect() } catch (error) { void error }
     if (!rect || !rect.pageWidth || rect.pageWidth < 220) { tabRail.hidden = true; return }
@@ -1020,6 +1207,8 @@ export function mountPublication(root, data, options) {
     root.classList.remove('fs-searching')
   }
   let searchTimer = 0
+  let searchReportTimer = 0
+  cleanups.push(() => win.clearTimeout(searchReportTimer))
   const runSearch = () => {
     const query = searchInput.value.trim()
     if (!query) { closeSearch(); return }
@@ -1040,6 +1229,8 @@ export function mountPublication(root, data, options) {
     list.replaceChildren()
     if (query.length < 2) { status.textContent = 'Type at least 2 letters.'; clearHits(); return }
     const matches = findMatches(query)
+    win.clearTimeout(searchReportTimer)
+    searchReportTimer = win.setTimeout(() => track('search', { search_term: query, results: matches.length }), 1500)
     status.textContent = matches.length ? matches.length + (matches.length >= 200 ? '+' : '') + ' result' + (matches.length === 1 ? '' : 's') : 'No results'
     matches.slice(0, 100).forEach((match) => {
       const text = pageTexts[match.page].text
@@ -1170,7 +1361,7 @@ export function mountPublication(root, data, options) {
         const number = make('span', 'fs-drawer-page')
         number.textContent = String(entry.page + 1)
         button.append(dot, label, number)
-        button.addEventListener('click', () => go(entry.page))
+        button.addEventListener('click', () => { track('select_content', { content_type: 'contents', item_id: entry.label, page_number: entry.page + 1 }); go(entry.page) })
         li.append(button)
         list.append(li)
         return { button, page: entry.page, section: entry.section, li, text: entry.label.toLowerCase() }
@@ -1216,6 +1407,7 @@ export function mountPublication(root, data, options) {
       add.addEventListener('click', () => {
         const here = visiblePages()[0]
         const marks = readMarks()
+        if (marks.indexOf(here) < 0) track('bookmark_page', { page_number: here + 1 })
         writeMarks(marks.indexOf(here) >= 0 ? marks.filter((n) => n !== here) : marks.concat([here]))
         render()
       })
@@ -1284,30 +1476,49 @@ export function mountPublication(root, data, options) {
         box.append(note)
         return
       }
+      const here = visiblePages()[0] + 1
+      let link = url
       const row = make('div', 'fs-share-copy')
       const field = make('input', '', { type: 'text', readonly: '', value: url, 'aria-label': 'Link' })
+      const grid = make('div', 'fs-share-grid')
+      const fillGrid = () => {
+        grid.replaceChildren()
+        shareLinks(link).forEach(([name, href]) => {
+          const anchor = make('a', 'fs-share-link', { href, target: '_blank', rel: 'noopener noreferrer' })
+          anchor.textContent = name
+          anchor.addEventListener('click', () => track('share', { method: name.toLowerCase(), content_type: 'catalogue', page_number: link === url ? 1 : here }))
+          grid.append(anchor)
+        })
+      }
+      if (here > 1 && readerSettings.pageLinks !== false) {
+        const option = make('label', 'fs-share-page')
+        const box2 = make('input', '', { type: 'checkbox' })
+        option.append(box2, 'Open at page ' + here)
+        box2.addEventListener('change', () => {
+          link = box2.checked ? url + '#page=' + here : url
+          field.value = link
+          copy.textContent = 'Copy link'
+          fillGrid()
+        })
+        box.append(option)
+      }
       const copy = make('button', 'fs-reader-btn', { type: 'button' })
       copy.textContent = 'Copy link'
       copy.addEventListener('click', () => {
-        const done = () => { copy.textContent = 'Copied ✓' }
+        const done = () => { copy.textContent = 'Copied ✓'; track('share', { method: 'copy_link', content_type: 'catalogue' }) }
         try {
           const fallback = () => {
             field.select()
             if (doc.execCommand) doc.execCommand('copy')
             done()
           }
-          if (win.navigator.clipboard) win.navigator.clipboard.writeText(url).then(done, fallback)
+          if (win.navigator.clipboard) win.navigator.clipboard.writeText(link).then(done, fallback)
           else fallback()
         } catch (error) { void error }
       })
       row.append(field, copy)
       box.append(row)
-      const grid = make('div', 'fs-share-grid')
-      shareLinks(url).forEach(([name, href]) => {
-        const link = make('a', 'fs-share-link', { href, target: '_blank', rel: 'noopener noreferrer' })
-        link.textContent = name
-        grid.append(link)
-      })
+      fillGrid()
       box.append(grid)
     })
     shareButton.setAttribute('aria-expanded', 'true')
@@ -1315,11 +1526,14 @@ export function mountPublication(root, data, options) {
   listen(emailButton, 'click', () => {
     const url = shareUrl()
     const href = 'mailto:?subject=' + encodeURIComponent(shareText()) + '&body=' + encodeURIComponent((url ? url + '\n\n' : '') + 'Page ' + (visiblePages()[0] + 1))
+    track('share', { method: 'email', content_type: 'catalogue' })
     const link = make('a', '', { href })
     root.append(link)
     link.click()
     link.remove()
   })
+
+  listen(downloadLink, 'click', () => track('file_download', { file_name: downloadLink.getAttribute('download') || '', file_extension: 'pdf', link_url: /^https?:/i.test(downloadLink.href) ? downloadLink.href : '' }))
 
   // ---------- auto flip ----------
   const autoSettings = readerSettings.autoFlip || {}
@@ -1346,6 +1560,7 @@ export function mountPublication(root, data, options) {
     }, autoInterval * 1000)
     autoButton.setAttribute('aria-pressed', 'true')
     setIcon(autoButton, 'autoStop', 'Stop auto flip')
+    track('auto_flip', { interval: autoInterval })
   }
   listen(autoButton, 'click', () => { if (autoFlipping()) stopAuto(); else startAuto() })
   listen(autoButton, 'contextmenu', (event) => {
@@ -1388,10 +1603,11 @@ export function mountPublication(root, data, options) {
       closePopup()
       return
     }
-    if (event.key === 'Escape' && (searchPanel || selectMode || thumbsPanel || drawer || popover || zoom !== 1)) {
+    if (event.key === 'Escape' && (sheet || searchPanel || selectMode || thumbsPanel || drawer || popover || zoom !== 1)) {
       event.preventDefault()
       event.stopPropagation()
-      if (popover) closePopover()
+      if (sheet) closeSheet()
+      else if (popover) closePopover()
       else if (thumbsPanel) closeThumbs()
       else if (drawer) closeDrawer()
       else if (searchPanel) closeSearch()
@@ -1410,8 +1626,105 @@ export function mountPublication(root, data, options) {
     if (event.key === 'ArrowRight' || event.key === 'PageDown') goPage(1)
   })
 
+  // ---------- phones: one compact bar + "More" sheet, pinch to zoom ----------
+  const updateCompact = () => {
+    const compact = (root.clientWidth || win.innerWidth || 1024) < 640
+    if (compact !== root.classList.contains('fs-compact')) {
+      root.classList.toggle('fs-compact', compact)
+      if (!compact) closeSheet()
+    }
+  }
+  let sheet = null
+  const closeSheet = () => {
+    if (!sheet) return
+    sheet.remove()
+    sheet = null
+    moreButton.setAttribute('aria-expanded', 'false')
+  }
+  const openSheet = () => {
+    closePopover()
+    closeSheet()
+    sheet = make('div', 'fs-sheet', { role: 'dialog', 'aria-label': 'More tools' })
+    const backdrop = make('div', 'fs-sheet-backdrop')
+    backdrop.addEventListener('click', closeSheet)
+    const panel = make('div', 'fs-sheet-panel')
+    const grab = make('div', 'fs-sheet-grab', { 'aria-hidden': 'true' })
+    const grid = make('div', 'fs-sheet-grid')
+    const tools = [].slice.call(leftGroup.children).concat([firstButton, lastButton], [].slice.call(rightGroup.children)).filter((item) => item !== moreButton && !item.hidden)
+    tools.forEach((tool) => {
+      const item = make('button', 'fs-sheet-item', { type: 'button' })
+      const icon = tool.querySelector('svg')
+      if (icon) item.append(icon.cloneNode(true))
+      const label = make('span')
+      label.textContent = tool.getAttribute('aria-label') || ''
+      item.append(label)
+      if (tool.disabled) item.disabled = true
+      if (tool.getAttribute('aria-pressed') === 'true' && tool !== soundButton) item.classList.add('is-on')
+      item.addEventListener('click', () => {
+        closeSheet()
+        // Let the sheet close first so drawers and popovers position against the bar.
+        win.setTimeout(() => tool.click(), 0)
+      })
+      grid.append(item)
+    })
+    panel.append(grab, grid)
+    sheet.append(backdrop, panel)
+    root.append(sheet)
+    moreButton.setAttribute('aria-expanded', 'true')
+  }
+  listen(moreButton, 'click', () => { if (sheet) closeSheet(); else openSheet() })
+  cleanups.push(closeSheet)
+  // Two fingers zoom the page (one finger still turns pages).
+  let pinch = null
+  const touchDistance = (touches) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY)
+  listen(stage, 'touchstart', (event) => {
+    if (event.touches.length !== 2) return
+    event.stopPropagation()
+    pinch = { distance: touchDistance(event.touches) || 1, zoom }
+  }, { capture: true, passive: true })
+  listen(stage, 'touchmove', (event) => {
+    if (!pinch || event.touches.length !== 2) return
+    event.stopPropagation()
+    if (event.cancelable) event.preventDefault()
+    const ratio = touchDistance(event.touches) / pinch.distance
+    const midX = (event.touches[0].clientX + event.touches[1].clientX) / 2
+    const midY = (event.touches[0].clientY + event.touches[1].clientY) / 2
+    const target = Math.max(1, Math.min(ZOOMS[ZOOMS.length - 1], pinch.zoom * ratio))
+    if (Math.abs(target - zoom) > 0.04) setZoom(target < 1.08 ? 1 : target, midX, midY)
+  }, { capture: true, passive: false })
+  listen(stage, 'touchend', (event) => { if (pinch && event.touches.length < 2) pinch = null }, { capture: true, passive: true })
+
+  // ---------- visitor consent for analytics (optional cookie notice) ----------
+  if (opts.standalone && analyticsId && readerSettings.analyticsConsent) {
+    let choice = ''
+    try { choice = (storage && storage.getItem('fs-consent')) || '' } catch (error) { void error }
+    if (!choice) {
+      const notice = make('div', 'fs-consent', { role: 'region', 'aria-label': 'Cookie notice' })
+      const text = make('p')
+      text.textContent = 'We use cookies to count visits and see which pages are read, so we can improve this catalogue.'
+      const actions = make('div', 'fs-consent-actions')
+      const decline = make('button', 'fs-reader-btn', { type: 'button' })
+      decline.textContent = 'Decline'
+      const accept = make('button', 'fs-reader-btn fs-consent-accept', { type: 'button' })
+      accept.textContent = 'Accept'
+      const decide = (value) => {
+        try { if (storage) storage.setItem('fs-consent', value) } catch (error) { void error }
+        if (value === 'granted' && typeof win.gtag === 'function') {
+          try { win.gtag('consent', 'update', { analytics_storage: 'granted' }) } catch (error) { void error }
+        }
+        notice.remove()
+      }
+      decline.addEventListener('click', () => decide('denied'))
+      accept.addEventListener('click', () => decide('granted'))
+      actions.append(decline, accept)
+      notice.append(text, actions)
+      root.append(notice)
+    }
+  }
+
   let resizeFrame = 0
   const onResize = () => {
+    updateCompact()
     if (resizeFrame) win.cancelAnimationFrame(resizeFrame)
     resizeFrame = win.requestAnimationFrame(() => {
       resizeFrame = 0
@@ -1428,9 +1741,19 @@ export function mountPublication(root, data, options) {
     listen(win, 'resize', onResize)
   }
 
+  updateCompact()
   buildBook()
   updateCount()
+  syncMedia()
   if (animations.length && opts.autoplay !== false) clock.play()
+  if (pageLinks) {
+    listen(win, 'hashchange', () => {
+      const linked = pageFromAddress()
+      if (linked >= 0 && visiblePages().indexOf(linked) < 0) openPage(linked)
+    })
+  }
+  reportPageView()
+  cleanups.push(() => win.clearTimeout(viewTimer))
 
   return {
     get currentPage() { return currentPage },
@@ -1459,6 +1782,7 @@ export function mountPublication(root, data, options) {
       closeDrawer()
       closePopover()
       stopAuto()
+      media.forEach((item) => { try { item.deactivate() } catch (error) { void error } })
       sound.destroy()
       clock.destroy()
       controllers.forEach((controller) => controller.destroy())
@@ -1469,7 +1793,7 @@ export function mountPublication(root, data, options) {
       }
       book = null
       root.replaceChildren()
-      root.classList.remove('fs-reader', 'fs-selecting', 'fs-zoomed', 'fs-no-book-shadow')
+      root.classList.remove('fs-reader', 'fs-selecting', 'fs-zoomed', 'fs-no-book-shadow', 'fs-compact')
       Object.keys(themeVars).forEach((key) => root.style.removeProperty(key))
     },
   }

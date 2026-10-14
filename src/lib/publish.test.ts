@@ -97,7 +97,11 @@ describe('publishBook (against a fake GitHub)', () => {
       'leather-gifts-2027/index.html',
       'leather-gifts-2027/pages/page-001.jpg',
       'leather-gifts-2027/pages/page-002.jpg',
+      'robots.txt',
+      'sitemap.xml',
     ])
+    expect(files['sitemap.xml']).toContain('<loc>https://books.example.com/leather-gifts-2027/</loc>')
+    expect(files['robots.txt']).toContain('Sitemap: https://books.example.com/sitemap.xml')
     const page = files['leather-gifts-2027/index.html']
     expect(page).toContain('<meta property="og:title" content="Leather Gifts 2027" />')
     expect(page).toContain('<meta property="og:image" content="https://books.example.com/leather-gifts-2027/cover.jpg" />')
@@ -105,6 +109,10 @@ describe('publishBook (against a fake GitHub)', () => {
     expect(page).toContain('<link rel="canonical" href="https://books.example.com/leather-gifts-2027/" />')
     expect(page).toContain('"pages/page-001.jpg"')
     expect(page).toContain('"Text 1"')
+    // Search engines: structured data and the readable text of every page.
+    expect(page).toContain('<script type="application/ld+json">')
+    expect(page).toContain('"numberOfPages":2')
+    expect(page).toContain('<div class="fs-seo">')
     // The editable project is never put online.
     expect(page).not.toContain('flipstudio.json')
     expect(new TextDecoder().decode(github.fileBytes('leather-gifts-2027/cover.jpg'))).toBe('share-image')
@@ -203,7 +211,8 @@ describe('brand-free single-catalogue website', () => {
     const result = await publishBook(single, book(), { slug: 'ignored', fetchImpl: github.fetch, apiBase: API, shareImage: share, loadFont: noFonts })
     expect(result.url).toBe('https://promotionalgifts-catalogue-2027.pages.dev/')
     const files = github.files()
-    expect(Object.keys(files).sort()).toEqual(['.nojekyll', '404.html', 'README.md', 'cover.jpg', 'index.html', 'pages/page-001.jpg', 'pages/page-002.jpg'])
+    expect(Object.keys(files).sort()).toEqual(['.nojekyll', '404.html', 'README.md', 'cover.jpg', 'index.html', 'pages/page-001.jpg', 'pages/page-002.jpg', 'robots.txt', 'sitemap.xml'])
+    expect(files['sitemap.xml']).toContain('<loc>https://promotionalgifts-catalogue-2027.pages.dev/</loc>')
     expect(files['index.html']).toContain('<meta property="og:image" content="https://promotionalgifts-catalogue-2027.pages.dev/cover.jpg" />')
     expect(files['index.html']).not.toContain('krossover')
     expect(files['404.html']).toContain('Open the catalogue')

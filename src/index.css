@@ -1,10 +1,121 @@
-:root {
+/* FlipStudio Pro app theme. Colours are tokens: dark (default), light, and
+   "system", which follows Windows. Set on <html data-theme="dark|light|system">. */
+
+:root,
+:root[data-theme='dark'] {
   color-scheme: dark;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  --bg: #141416;
+  --panel: #1a1a1d;
+  --panel-2: #232327;
+  --field: #111113;
+  --hover: #2b2b30;
+  --canvas: #0d0d0f;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --text: #ededef;
+  --text-2: #c9c9ce;
+  --muted: #8d8d96;
+  --accent: #c8a46b;
+  --accent-strong: #d9b882;
+  --accent-fg: #1b1408;
+  --accent-soft: rgba(200, 164, 107, 0.14);
+  --accent-text: #dcbd8a;
+  --select: #4d8dff;
+  --select-soft: rgba(77, 141, 255, 0.16);
+  --danger: #f2777f;
+  --danger-strong: #c9343f;
+  --danger-soft: rgba(242, 119, 127, 0.12);
+  --ok: #63c98f;
+  --ok-strong: #1f8a4c;
+  --ok-soft: rgba(99, 201, 143, 0.14);
+  --warn-text: #efcd7d;
+  --warn-bg: rgba(239, 205, 125, 0.09);
+  --warn-line: rgba(239, 205, 125, 0.28);
+  --backdrop: rgba(6, 6, 8, 0.62);
+  --cover-bg: radial-gradient(circle at 50% 30%, #2c2c31, #161618);
+  --shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  --danger-2: var(--danger);
+  --accent-2: var(--accent);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f2f2f3;
+  --panel: #fafafa;
+  --panel-2: #ffffff;
+  --field: #ffffff;
+  --hover: #ebebed;
+  --canvas: #e4e4e7;
+  --line: rgba(20, 20, 24, 0.08);
+  --line-strong: rgba(20, 20, 24, 0.16);
+  --text: #18181b;
+  --text-2: #3f3f46;
+  --muted: #6e6e78;
+  --accent: #96703a;
+  --accent-strong: #7f5d2e;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(150, 112, 58, 0.11);
+  --accent-text: #80602f;
+  --select: #2f6fef;
+  --select-soft: rgba(47, 111, 239, 0.12);
+  --danger: #c8333e;
+  --danger-strong: #c8333e;
+  --danger-soft: rgba(200, 51, 62, 0.08);
+  --ok: #1f8a4c;
+  --ok-strong: #1f8a4c;
+  --ok-soft: rgba(31, 138, 76, 0.1);
+  --warn-text: #865700;
+  --warn-bg: #fff7df;
+  --warn-line: #f0d68d;
+  --backdrop: rgba(24, 24, 27, 0.32);
+  --cover-bg: radial-gradient(circle at 50% 30%, #ffffff, #e9e9ec);
+  --shadow: 0 24px 64px rgba(24, 24, 27, 0.16);
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme='system'] {
+    color-scheme: light;
+    --bg: #f2f2f3;
+    --panel: #fafafa;
+    --panel-2: #ffffff;
+    --field: #ffffff;
+    --hover: #ebebed;
+    --canvas: #e4e4e7;
+    --line: rgba(20, 20, 24, 0.08);
+    --line-strong: rgba(20, 20, 24, 0.16);
+    --text: #18181b;
+    --text-2: #3f3f46;
+    --muted: #6e6e78;
+    --accent: #96703a;
+    --accent-strong: #7f5d2e;
+    --accent-fg: #ffffff;
+    --accent-soft: rgba(150, 112, 58, 0.11);
+    --accent-text: #80602f;
+    --select: #2f6fef;
+    --select-soft: rgba(47, 111, 239, 0.12);
+    --danger: #c8333e;
+    --danger-strong: #c8333e;
+    --danger-soft: rgba(200, 51, 62, 0.08);
+    --ok: #1f8a4c;
+    --ok-strong: #1f8a4c;
+    --ok-soft: rgba(31, 138, 76, 0.1);
+    --warn-text: #865700;
+    --warn-bg: #fff7df;
+    --warn-line: #f0d68d;
+    --backdrop: rgba(24, 24, 27, 0.32);
+    --cover-bg: radial-gradient(circle at 50% 30%, #ffffff, #e9e9ec);
+    --shadow: 0 24px 64px rgba(24, 24, 27, 0.16);
+  }
+}
+
+:root {
+  --ui-font: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: var(--ui-font);
+  accent-color: var(--accent);
   line-height: 1.5;
   font-weight: 400;
-  color: #e2e8f0;
-  background: #020817;
+  color: var(--text);
+  background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -23,7 +134,7 @@ html, body, #root {
 
 body {
   min-height: 100vh;
-  background: #020817;
+  background: var(--bg);
 }
 
 img {
@@ -39,3 +150,4 @@ button, input {
   font: inherit;
 }
 
+::selection { background: var(--accent-soft); }

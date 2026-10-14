@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { JSDOM } from 'jsdom'
 import JSZip from 'jszip'
-import { cropStyle, frameStyle, normalizeWebUrl, resolveAction, skinClassName, skinStyle, styleFor } from './styles.js'
+import { cropStyle, frameStyle, normalizeWebUrl, resolveAction, skinClassName, skinStyle, styleFor, videoSource } from './styles.js'
 import { buildExportZip, buildSelfContainedExportHtml, createProject, PROJECT_VERSION, serializeProject, usedFonts } from '../lib/project'
 
 describe('click actions', () => {
@@ -143,5 +143,24 @@ describe('image frames and crop', () => {
     expect(cropStyle({})).toMatchObject({ width: '100%', height: '100%', left: '0%', top: '0%' })
     expect(cropStyle({ crop: { zoom: 2, x: 100, y: 0 } })).toMatchObject({ width: '200%', left: '-100%', top: '0%', objectPosition: '100% 0%' })
     expect(cropStyle({ crop: { zoom: 9, x: -20, y: 50 } })).toMatchObject({ width: '500%', left: '0%', top: '-200%' })
+  })
+})
+
+describe('videoSource', () => {
+  it('turns YouTube links into privacy-friendly embeds', () => {
+    for (const url of ['https://youtu.be/dQw4w9WgXcQ', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=30', 'youtube.com/shorts/dQw4w9WgXcQ', 'https://m.youtube.com/embed/dQw4w9WgXcQ']) {
+      const source = videoSource(url)
+      expect(source?.kind).toBe('youtube')
+      expect(source?.src.startsWith('https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?')).toBe(true)
+    }
+    expect(videoSource('https://youtu.be/dQw4w9WgXcQ', { autoplay: true, loop: true })?.src).toContain('autoplay=1&mute=1&loop=1&playlist=dQw4w9WgXcQ')
+  })
+  it('handles Vimeo, direct files and rejects other links', () => {
+    expect(videoSource('https://vimeo.com/76979871')?.src).toBe('https://player.vimeo.com/video/76979871?dnt=1&playsinline=1&title=0&byline=0&portrait=0')
+    expect(videoSource('https://cdn.example.com/promo.mp4')?.kind).toBe('file')
+    expect(videoSource('data:video/mp4;base64,AAAA')?.kind).toBe('file')
+    expect(videoSource('https://example.com/page')).toBeNull()
+    expect(videoSource('javascript:alert(1)')).toBeNull()
+    expect(videoSource('')).toBeNull()
   })
 })

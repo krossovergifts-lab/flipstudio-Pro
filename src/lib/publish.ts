@@ -38,6 +38,8 @@ export interface CatalogEntry {
   keywords: string
   pageCount: number
   updatedAt: string
+  /** Hidden from search engines (left out of sitemap.xml). */
+  noIndex?: boolean
 }
 
 export interface Catalog {
@@ -50,7 +52,7 @@ export type PublishProgress = (message: string, done?: number, total?: number) =
 
 const SETTINGS_KEY = 'flipstudio.publish.v1'
 /** Top-level names that cannot be used as publication slugs. */
-const RESERVED = new Set(['index.html', 'catalog.json', '404.html', '.nojekyll', 'assets', 'api', 'readme.md', 'vercel.json', '.github'])
+const RESERVED = new Set(['index.html', 'catalog.json', '404.html', '.nojekyll', 'sitemap.xml', 'robots.txt', 'assets', 'api', 'readme.md', 'vercel.json', '.github'])
 
 export const EMPTY_SETTINGS: PublishSettings = { owner: '', repo: '', branch: 'main', token: '', siteUrl: '', siteTitle: 'Our publications' }
 
@@ -558,12 +560,39 @@ async function existingFolder(repo: GitHubRepo, rootEntries: TreeEntry[], slug: 
   return files
 }
 
+const xmlEscape = (value: string): string => value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c] ?? c)
+
+/** sitemap.xml for search engines: the bookshelf and every publication that is not hidden from search. */
+export function buildSitemap(catalog: Catalog, settings: Pick<PublishSettings, 'siteUrl' | 'layout'>): string {
+  const base = normalizeSiteUrl(settings.siteUrl)
+  const urls: Array<{ loc: string; lastmod?: string }> = []
+  if (settings.layout === 'single') {
+    const book = catalog.books[0]
+    if (book && !book.noIndex) urls.push({ loc: `${base}/`, lastmod: book.updatedAt })
+  } else {
+    const latest = catalog.books.map((book) => book.updatedAt).sort().pop()
+    urls.push({ loc: `${base}/`, lastmod: latest })
+    for (const book of catalog.books) if (!book.noIndex) urls.push({ loc: bookUrl(settings, book.slug), lastmod: book.updatedAt })
+  }
+  const body = urls.map((url) => `  <url><loc>${xmlEscape(url.loc)}</loc>${url.lastmod ? `<lastmod>${xmlEscape(url.lastmod.slice(0, 10))}</lastmod>` : ''}</url>`).join('\n')
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>\n`
+}
+
+/** robots.txt: allow everything (or nothing, for a single catalogue hidden from search) and point to the sitemap. */
+export function buildRobots(catalog: Catalog, settings: Pick<PublishSettings, 'siteUrl' | 'layout'>): string {
+  const base = normalizeSiteUrl(settings.siteUrl)
+  const hidden = settings.layout === 'single' && Boolean(catalog.books[0]?.noIndex)
+  return `User-agent: *\n${hidden ? 'Disallow: /' : 'Allow: /'}\n${base && !hidden ? `\nSitemap: ${base}/sitemap.xml\n` : ''}`
+}
+
 function siteFiles(catalog: Catalog, settings: PublishSettings): TreeEntry[] {
   const text = (path: string, content: string) => ({ path, mode: '100644', type: 'blob' as const, content }) as unknown as TreeEntry
+  const seo = [text('sitemap.xml', buildSitemap(catalog, settings)), text('robots.txt', buildRobots(catalog, settings))]
   if (settings.layout === 'single') {
-    return [text('404.html', NOT_FOUND_HTML.replace('__HOME__', escapeHtml(`${normalizeSiteUrl(settings.siteUrl)}/`)).replace('See all publications', 'Open the catalogue')), text('.nojekyll', '')]
+    return [text('404.html', NOT_FOUND_HTML.replace('__HOME__', escapeHtml(`${normalizeSiteUrl(settings.siteUrl)}/`)).replace('See all publications', 'Open the catalogue')), text('.nojekyll', ''), ...seo]
   }
   return [
+    ...seo,
     text('catalog.json', JSON.stringify(catalog, null, 2) + '\n'),
     text('index.html', buildSiteIndexHtml(catalog, settings.siteUrl)),
     text('404.html', NOT_FOUND_HTML.replace('__HOME__', escapeHtml(`${normalizeSiteUrl(settings.siteUrl)}/`))),
@@ -660,9 +689,10 @@ async function commitPublication(
     keywords: project.keywords ?? '',
     pageCount: project.pages.length,
     updatedAt: new Date().toISOString(),
+    ...(project.reader?.noIndex ? { noIndex: true } : {}),
   }
   catalog.books = [entry, ...catalog.books.filter((book) => book.slug !== slug)]
-  entries.push(...(settings.layout === 'single' ? site : siteFiles(catalog, settings)))
+  entries.push(...siteFiles(catalog, settings))
 
   progress('Saving the new version online…')
   const commit = await repo.commitTree(head, entries, `${previous.size ? 'Update' : 'Publish'} “${project.title}”`)

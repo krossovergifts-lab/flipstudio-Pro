@@ -5,6 +5,7 @@ export interface PublicationSlide {
   id: string
   src: string
   alt?: string
+  kind?: 'image' | 'video'
 }
 
 export interface PublicationOverlay {
@@ -40,6 +41,8 @@ export interface PublicationOverlay {
   showIndicators?: 'dots' | 'thumbnails' | 'none'
   pauseOnHover?: boolean
   startIndex?: number
+  videoUrl?: string
+  muted?: boolean
 }
 
 export interface PublicationPage {
@@ -92,6 +95,12 @@ export interface PublicationData {
     downloadUrl?: string
     downloadName?: string
     centerSinglePages?: boolean
+    analyticsId?: string
+    analyticsConsent?: boolean
+    seoTitle?: string
+    language?: string
+    noIndex?: boolean
+    pageLinks?: boolean
   }
   id?: string
   shareUrl?: string
@@ -122,6 +131,10 @@ export interface MountOptions {
   designStateWhenStopped?: boolean
   onPageChange?: (page: number) => void
   onTimeChange?: (time: number, state: ClockState) => void
+  /** Published / exported copy: the address bar follows the page and analytics may run. */
+  standalone?: boolean
+  /** Called for every reader event (page view, search, share…), also when analytics is off. */
+  onTrack?: (name: string, params: Record<string, unknown>) => void
 }
 
 export function mountPublication(root: HTMLElement, data: PublicationData, options?: MountOptions): PublicationHandle

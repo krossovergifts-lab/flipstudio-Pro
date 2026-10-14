@@ -66,7 +66,7 @@ export async function createFakeGitHub(options: { empty?: boolean; token?: strin
       if (!head) return out
       for (const [path, sha] of trees.get(commitTrees.get(head)!)!) {
         const bytes = blobs.get(sha)!
-        out[path] = /\.(html|json|md|txt)$|^\.nojekyll$|\/\.nojekyll$/.test(path) ? decoder.decode(bytes) : `<${bytes.length} bytes>`
+        out[path] = /\.(html|json|md|txt|xml)$|^\.nojekyll$|\/\.nojekyll$/.test(path) ? decoder.decode(bytes) : `<${bytes.length} bytes>`
       }
       return out
     },

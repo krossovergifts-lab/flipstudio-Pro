@@ -39,6 +39,9 @@ import { IMAGE_ACCEPT, formatBytes, readImageAssets } from './lib/assets'
 import type { AnimationPreset } from './lib/project'
 import { OverlayView, type ResizeHandle } from './components/OverlayView'
 import { SlideshowInspector } from './components/SlideshowInspector'
+import { VideoInspector } from './components/VideoInspector'
+import { Icon } from './components/Icon'
+import { ThemeSwitch } from './components/ThemeSwitch'
 import { PreviewPane } from './components/PreviewPane'
 import { Timeline } from './components/Timeline'
 import { NumberField } from './components/NumberField'
@@ -188,6 +191,8 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
   /** What the single-image picker is for: a new image object, or a pop-up's picture. */
   const imagePickerTargetRef = useRef<{ mode: 'object' } | { mode: 'popup'; overlayId: string }>({ mode: 'object' })
   const slideshowInputRef = useRef<HTMLInputElement | null>(null)
+  const videoInputRef = useRef<HTMLInputElement | null>(null)
+  const videoTargetRef = useRef<{ mode: 'object' | 'slide'; overlayId: string } | null>(null)
   const projectInputRef = useRef<HTMLInputElement | null>(null)
   const workspaceSurfaceRef = useRef<HTMLDivElement | null>(null)
   const gestureRef = useRef<CanvasGesture | null>(null)
@@ -536,7 +541,7 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
         report(`${assets.length} image${assets.length === 1 ? '' : 's'} added — slideshow now has ${slides.length}`, problemText)
       } else {
         const slides = (overlay.slides ?? []).map((slide) =>
-          slide.id === target.slideId ? { ...slide, assetId: merged.ids[0], src: undefined, alt: assets[0].name.replace(/\.[^.]+$/, '') } : slide,
+          slide.id === target.slideId ? { ...slide, assetId: merged.ids[0], src: undefined, kind: undefined, videoUrl: undefined, alt: assets[0].name.replace(/\.[^.]+$/, '') } : slide,
         )
         commitProject(mapOverlay(base, overlay.id, (current) => ({ ...current, slides })))
         report(`Replaced slide with ${assets[0].name}`, problemText)
@@ -612,6 +617,41 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
       }
     },
     [commitProject, committedProject, report, selectedOverlay],
+  )
+
+  const openVideoPicker = useCallback((mode: 'object' | 'slide', overlayId: string) => {
+    videoTargetRef.current = { mode, overlayId }
+    videoInputRef.current?.click()
+  }, [])
+
+  const handleVideoInput = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const input = event.target
+      const file = input.files?.[0]
+      input.value = ''
+      const target = videoTargetRef.current
+      videoTargetRef.current = null
+      if (!file || !target) return
+      try {
+        if (!/^video\//.test(file.type) && !/\.(mp4|webm|mov|m4v|ogv)$/i.test(file.name)) throw new Error(`${file.name} is not a video file. Use MP4 (H.264) or WebM.`)
+        if (file.size > 150 * 1024 * 1024) throw new Error(`${file.name} is ${formatBytes(file.size)}. Use a video under 150 MB, or upload it to YouTube and paste the link.`)
+        report(`Reading ${file.name}…`)
+        let dataUrl = await fileToDataUrl(file, file.name)
+        if (!/^data:video\//.test(dataUrl)) dataUrl = dataUrl.replace(/^data:[^;,]*/, `data:${/\.webm$/i.test(file.name) ? 'video/webm' : /\.mov$/i.test(file.name) ? 'video/quicktime' : 'video/mp4'}`)
+        const asset = createAsset({ name: file.name, dataUrl })
+        const merged = mergeAssets(committedProject.assets, [asset])
+        const base = { ...committedProject, assets: merged.assets }
+        if (target.mode === 'object') {
+          commitProject(mapOverlay(base, target.overlayId, (overlay) => ({ ...overlay, assetId: merged.ids[0], src: undefined, videoUrl: undefined, label: overlay.label === 'Video' ? file.name.replace(/\.[^.]+$/, '') : overlay.label })))
+        } else {
+          commitProject(mapOverlay(base, target.overlayId, (overlay) => ({ ...overlay, slides: [...(overlay.slides ?? []), { id: newId('slide'), kind: 'video' as const, assetId: merged.ids[0], alt: file.name.replace(/\.[^.]+$/, '') }] })))
+        }
+        report(`Added video ${file.name}`, file.size > 25 * 1024 * 1024 ? `${formatBytes(file.size)} — for online catalogues on Cloudflare keep videos under 25 MB or use a YouTube link.` : undefined)
+      } catch (err) {
+        report('Video not added', errorMessage(err, 'The video could not be read.'))
+      }
+    },
+    [commitProject, committedProject, report],
   )
 
   const openSlideshowPicker = useCallback((target: PickerTarget) => {
@@ -1397,11 +1437,11 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
           project={committedProject}
           onCancel={() => setDesignOpen(false)}
           initialTab={designOpen === 'bookmarks' ? 'bookmarks' : 'theme'}
-          onApply={(reader, assets, bookmarks) => {
+          onApply={(reader, assets, bookmarks, info) => {
             setDesignOpen(false)
             const merged = mergeAssets(committedProject.assets, assets)
             const pages = committedProject.pages.map((page) => (page.id in bookmarks ? { ...page, bookmark: bookmarks[page.id] } : page))
-            commitProject({ ...committedProject, reader, assets: merged.assets, pages })
+            commitProject({ ...committedProject, reader, assets: merged.assets, pages, description: info.description, keywords: info.keywords })
             report('Flipbook design updated')
           }}
         />
@@ -1420,12 +1460,13 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
       <style data-testid="font-faces">{fontCss}</style>
       <input ref={projectInputRef} type="file" accept="application/json,.json" onChange={openProjectFile} hidden />
       <input ref={slideshowInputRef} type="file" accept={IMAGE_ACCEPT} multiple onChange={handleSlideshowInput} hidden data-testid="slideshow-input" />
+      <input ref={videoInputRef} type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v" onChange={handleVideoInput} hidden data-testid="video-input" />
 
       <header className="top-toolbar" role="toolbar" aria-label="Main toolbar">
         <div className="brand" title="FlipStudio Pro">FS</div>
         {libraryMode ? (
           <div className="toolbar-group" aria-label="File">
-            <button type="button" className="library-back" onClick={() => void exitToLibrary()} title="Back to all publications (saves first)">‹ Library</button>
+            <button type="button" className="library-back" onClick={() => void exitToLibrary()} title="Back to all publications (saves first)"><Icon name="back" /> Library</button>
             <span className="doc-title" title={project.title}>{project.title}</span>
             <span className={`save-pill ${saveState}`} role="status">{saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Not saved' : dirty ? 'Unsaved' : 'Saved'}</span>
             <button type="button" onClick={() => void saveProject()} title="Save now (Ctrl+S). Changes also save automatically.">Save</button>
@@ -1440,23 +1481,37 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
           </div>
         )}
         <div className="toolbar-group" aria-label="Edit">
-          <button type="button" onClick={undo} disabled={history.index === 0} title="Undo (Ctrl+Z)">Undo</button>
-          <button type="button" onClick={redo} disabled={history.index >= history.snapshots.length - 1} title="Redo (Ctrl+Y)">Redo</button>
+          <button type="button" className="icon-button" aria-label="Undo" onClick={undo} disabled={history.index === 0} title="Undo (Ctrl+Z)"><Icon name="undo" /></button>
+          <button type="button" className="icon-button" aria-label="Redo" onClick={redo} disabled={history.index >= history.snapshots.length - 1} title="Redo (Ctrl+Y)"><Icon name="redo" /></button>
         </div>
         <div className="toolbar-group" aria-label="Insert">
-          <button type="button" onClick={() => pdfInputRef.current?.click()} disabled={isPreview} title="Import a PDF as the publication's pages">Import PDF</button>
-          <span className="toolbar-label">Add</span>
-          <button type="button" aria-label="Add image" title="Add image" onClick={() => { imagePickerTargetRef.current = { mode: 'object' }; imageInputRef.current?.click() }} disabled={isPreview}>Image</button>
-          <button type="button" aria-label="Add text" title="Add text" onClick={() => addOverlay('text')} disabled={isPreview}>Text</button>
-          <button type="button" aria-label="Add button" title="Add button" onClick={() => addOverlay('button')} disabled={isPreview}>Button</button>
-          <button type="button" aria-label="Add hotspot" title="Add clickable hotspot" onClick={() => addOverlay('hotspot')} disabled={isPreview}>Hotspot</button>
-          <button type="button" aria-label="Add slideshow" title="Add slideshow — choose two or more images" onClick={() => openSlideshowPicker({ mode: 'new-slideshow' })} disabled={isPreview}>Slideshow</button>
+          <button type="button" onClick={() => pdfInputRef.current?.click()} disabled={isPreview} aria-label="Import PDF" title="Import a PDF as the publication's pages"><Icon name="pdf" /><span className="btn-label">Import PDF</span></button>
+          <span className="toolbar-divider" aria-hidden="true" />
+          <button type="button" aria-label="Add image" title="Add image" onClick={() => { imagePickerTargetRef.current = { mode: 'object' }; imageInputRef.current?.click() }} disabled={isPreview}><Icon name="image" /><span className="btn-label">Image</span></button>
+          <button type="button" aria-label="Add text" title="Add text" onClick={() => addOverlay('text')} disabled={isPreview}><Icon name="text" /><span className="btn-label">Text</span></button>
+          <button type="button" aria-label="Add button" title="Add button" onClick={() => addOverlay('button')} disabled={isPreview}><Icon name="button" /><span className="btn-label">Button</span></button>
+          <button type="button" aria-label="Add hotspot" title="Add clickable hotspot" onClick={() => addOverlay('hotspot')} disabled={isPreview}><Icon name="hotspot" /><span className="btn-label">Hotspot</span></button>
+          <button type="button" aria-label="Add slideshow" title="Add slideshow — choose two or more images" onClick={() => openSlideshowPicker({ mode: 'new-slideshow' })} disabled={isPreview}><Icon name="slides" /><span className="btn-label">Slideshow</span></button>
+          <button
+            type="button"
+            aria-label="Add video"
+            title="Add a video — upload an MP4 or paste a YouTube / Vimeo link"
+            onClick={() => {
+              const page = selectedPage ?? committedProject.pages[0]
+              if (!page) return
+              const width = Math.round(page.width * 0.6)
+              addOverlay('video', { width, height: Math.round((width * 9) / 16), autoplay: false, looping: false, muted: false, showControls: true })
+            }}
+            disabled={isPreview}
+          >
+            <Icon name="video" /><span className="btn-label">Video</span>
+          </button>
         </div>
         <div className="toolbar-spacer" />
         <div className="toolbar-group toolbar-publish" aria-label="Publish">
-          <button type="button" aria-label="Flipbook design" title="Flipbook design: theme, background, page turn, sound" onClick={() => setDesignOpen('theme')}>🎨<span className="toolbar-btn-label"> Design</span></button>
-          <button type="button" aria-label="Export HTML" title="Export one self-contained HTML file" onClick={() => void exportHtml()}>⇩ HTML</button>
-          <button type="button" aria-label="Export ZIP" title="Export a ZIP folder for web hosting" onClick={() => void exportZip()}>⇩ ZIP</button>
+          <button type="button" aria-label="Flipbook design" title="Flipbook design: theme, background, page turn, sound" onClick={() => setDesignOpen('theme')}><Icon name="design" /><span className="toolbar-btn-label"> Design</span></button>
+          <button type="button" aria-label="Export HTML" title="Export one self-contained HTML file" onClick={() => void exportHtml()}><Icon name="download" /><span className="btn-label">HTML</span></button>
+          <button type="button" aria-label="Export ZIP" title="Export a ZIP folder for web hosting" onClick={() => void exportZip()}><Icon name="download" /><span className="btn-label">ZIP</span></button>
           {onPublish && (
             <button
               type="button"
@@ -1468,10 +1523,12 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
                 onPublish(committedProject)
               })()}
             >
-              🌐 Publish
+              <Icon name="globe" /> Publish
             </button>
           )}
+          <ThemeSwitch compact />
           <button type="button" className="primary" onClick={isPreview ? exitPreview : enterPreview}>
+            <Icon name={isPreview ? 'edit' : 'eye'} />
             {isPreview ? 'Edit' : 'Preview'}
           </button>
         </div>
@@ -1721,6 +1778,16 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
                     }}
                   />
 
+                  {selectedOverlay.type === 'video' && (
+                    <VideoInspector
+                      key={selectedOverlay.id}
+                      overlay={selectedOverlay}
+                      assets={project.assets}
+                      onChange={(changes, mergeKey) => updateSelectedOverlay(changes, mergeKey)}
+                      onChooseFile={() => openVideoPicker('object', selectedOverlay.id)}
+                    />
+                  )}
+
                   {selectedOverlay.type === 'slideshow' && (
                     <SlideshowInspector
                       overlay={selectedOverlay}
@@ -1729,6 +1796,8 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
                       playing={Boolean(slideshowPlaying[selectedOverlay.id])}
                       onChange={(changes, mergeKey) => updateSelectedOverlay(changes, mergeKey)}
                       onAddImages={() => openSlideshowPicker({ mode: 'add-slides', overlayId: selectedOverlay.id })}
+                      onAddVideo={() => openVideoPicker('slide', selectedOverlay.id)}
+                      onAddVideoLink={(videoUrl) => updateSelectedOverlay({ slides: [...(selectedOverlay.slides ?? []), { id: newId('slide'), kind: 'video', videoUrl, alt: 'Video' }] })}
                       onReplaceImage={(slideId) => openSlideshowPicker({ mode: 'replace-slide', overlayId: selectedOverlay.id, slideId })}
                       onTogglePlay={() => controllersRef.current.get(selectedOverlay.id)?.toggle()}
                       onStep={(direction) => {

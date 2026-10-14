@@ -1,5 +1,5 @@
 import { overlayStyle, type AnimationFrame, type SlideshowController } from '../runtime/engine.js'
-import { HOTSPOT_MARKERS, cropStyle, frameStyle, skinClassName, skinStyle, styleFor } from '../runtime/styles.js'
+import { HOTSPOT_MARKERS, cropStyle, frameStyle, skinClassName, skinStyle, styleFor, videoSource } from '../runtime/styles.js'
 import { findFont, type FontDefinition } from '../lib/fonts'
 import { resolveSource, type OverlayObject, type PageDefinition, type ProjectState } from '../lib/project'
 import { SlideshowView } from './SlideshowView'
@@ -51,6 +51,22 @@ export function OverlayView(props: OverlayViewProps) {
     content = source
       ? <div className="fs-clip"><img className={`fs-image fs-fit-${overlay.fit ?? 'cover'}`} src={source} alt={overlay.label} draggable={false} style={cropStyle(overlay) as React.CSSProperties} /></div>
       : <div className="fs-placeholder">{missingAsset ? 'Missing image asset' : 'No image'}</div>
+  } else if (overlay.type === 'video') {
+    const linked = !source ? videoSource(overlay.videoUrl) : null
+    content = (
+      <div className="fs-video editor-video">
+        {source ? (
+          <video className={`fs-video-el fs-fit-${overlay.fit === 'contain' ? 'contain' : 'cover'}`} src={source} muted preload="metadata" />
+        ) : linked?.thumb ? (
+          <img className="editor-video-thumb" src={linked.thumb} alt="" draggable={false} />
+        ) : null}
+        <span className="editor-video-badge">
+          <span className="fs-video-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" /></svg></span>
+          {!source && !linked && <span className="editor-video-hint">Video · upload a file or paste a YouTube link in the inspector</span>}
+          {linked && !linked.thumb && <span className="editor-video-hint">{linked.kind === 'vimeo' ? 'Vimeo video' : 'Video link'}</span>}
+        </span>
+      </div>
+    )
   } else if (overlay.type === 'text' || overlay.type === 'button' || overlay.type === 'hotspot') {
     const look = styleFor(overlay)
     const marker = overlay.type === 'hotspot' ? (look.marker && look.marker !== 'none' ? look.marker : overlay.effect === 'beacon' ? 'dot' : 'none') : 'none'
@@ -70,7 +86,7 @@ export function OverlayView(props: OverlayViewProps) {
       className={`fs-overlay overlay-box ${overlay.type} ${selected ? 'selected' : ''} ${overlay.locked ? 'locked' : ''}`}
       data-type={overlay.type}
       data-object-id={overlay.id}
-      style={overlay.type === 'image' || overlay.type === 'slideshow' ? { ...style, ...frameStyle(overlay, page) } : style}
+      style={overlay.type === 'image' || overlay.type === 'slideshow' || overlay.type === 'video' ? { ...style, ...frameStyle(overlay, page) } : style}
       onPointerDown={props.onPointerDown}
       onDoubleClick={props.onDoubleClick}
       onWheel={props.cropping ? props.onCropWheel : undefined}

@@ -75,6 +75,39 @@ Pick a neutral name with no brand in it, e.g. `giftscatalogue2027.com`.
 
 The `*.pages.dev` address keeps working as well.
 
+## Google Analytics (see who reads the catalogue)
+
+1. Go to <https://analytics.google.com> → **Admin → Create → Property** (name it e.g. *Catalogue 2027*,
+   your time zone and currency) → **Web** data stream → website address
+   `https://promotionalgifts-catalogue-2027.pages.dev` (or your own domain) → **Create stream**.
+2. Copy the **Measurement ID** (it starts with `G-`).
+3. In FlipStudio Pro: **🎨 Design → SEO & analytics → Measurement ID**, paste it → **Apply design** →
+   **Publish → Update online version**.
+4. Open your catalogue, then in Google Analytics **Reports → Realtime** you see yourself within a minute.
+
+What you will see in Analytics: page views per page (*Reports → Engagement → Pages and screens*,
+titles like "Catalogue · Pages 12–13", so you know which products are read most), and events
+(*Engagement → Events*): `search` (with the words searched), `click` (links / WhatsApp),
+`view_item` (product pop-ups), `share`, `file_download`, `bookmark_page`, `auto_flip`,
+`video_start`, `video_complete`, `select_content` (Contents). Turn on **Ask visitors first** if you
+need a cookie notice (EU visitors).
+
+## Google search (SEO)
+
+Every published catalogue already includes: the title and description you set in **Design → SEO &
+analytics**, the text of every page (readable by Google), bookmarks as chapters, product links,
+structured data, link previews, `sitemap.xml` and `robots.txt`.
+
+To get into Google faster:
+1. Open <https://search.google.com/search-console> → **Add property → URL prefix** → your catalogue
+   address → verify with **Google Analytics** (works automatically once step 3 above is done) or with
+   **HTML tag / DNS** (for your own domain on Cloudflare choose **Domain** and Cloudflare adds the record).
+2. **Sitemaps** → enter `sitemap.xml` → **Submit**.
+3. **URL inspection** → paste the address → **Request indexing**.
+
+Links can open on a page: `https://…/#page=12`. Use these in emails or WhatsApp to send a customer
+straight to a product page (the reader's **Share → Open at page N** creates them).
+
 ## Bookshelf on GitHub Pages (many publications on one site)
 
 Click **🌐 Publish** (library card or editor). The setup window has three steps:

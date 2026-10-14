@@ -189,6 +189,22 @@ Verified in this (Linux) workspace:
 ### Third-party licences
 `THIRD_PARTY_NOTICES.md` contains the MIT licence of StPageFlip and the OFL licence text of every bundled font. Exported ZIP READMEs list the fonts they embed.
 
+## Seventh pass (2026-10-14): v1.5 — video, SEO, Google Analytics, phones, light/dark app
+
+Checked against PubHTML5's feature list:
+- Mobile ready — existed (single page + swipe); improved: one-row phone bar + More sheet, tabs hidden
+  on phones, pinch zoom, safe-area padding (e2e7 M1–M5).
+- Tracking with Google Analytics — new: GA4 Measurement ID, page view per page/spread, search, click,
+  view_item, share, file_download, bookmark_page, auto_flip, video_start/complete, select_content;
+  optional consent mode notice (e2e7 S3, A1–A3).
+- Video & photo slideshow — photo slideshow existed; new video objects (file or YouTube/Vimeo, lite
+  embed with poster) and video slides; videos load only on their page and pause on turn (V1–V4, P1–P5).
+- SEO — had description/keywords/OG/canonical; new SEO title, language, noindex, crawlable text of
+  every page, JSON-LD Book with chapters, sitemap.xml + robots.txt, #page=N deep links (S1–S4, L1–L3).
+- App UI: token-based light / dark / system theme, line icons instead of emoji, quieter toolbar, no
+  all-caps labels; screenshots checked in both themes.
+- Tests: Vitest 100/100, oxlint clean, Playwright e2e 46 + 19 + 24 + 24 + 16 + 28 + 27 checks pass.
+
 ## Sixth pass (2026-10-14): reader v1.4 — centred book, bookmarks, auto flip, share
 
 - Centred layout: a lone cover or last page is shifted to the middle; the book glides to the

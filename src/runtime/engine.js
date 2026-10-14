@@ -215,11 +215,12 @@ export function createSlideshowController(overlay, render, timers) {
   let timer = 0
   let playing = false
   let hoverPaused = false
+  let held = false
   let destroyed = false
   const schedule = () => {
     if (timer) clearT(timer)
     timer = 0
-    if (!playing || hoverPaused || destroyed || count < 2) return
+    if (!playing || hoverPaused || held || destroyed || count < 2) return
     timer = setT(() => {
       timer = 0
       const result = stepSlide(index, count, 1, overlay.looping !== false)
@@ -270,6 +271,11 @@ export function createSlideshowController(overlay, render, timers) {
     goTo(target) {
       const bounded = clamp(Math.floor(target), 0, Math.max(0, count - 1))
       if (bounded !== index) go(bounded, bounded > index ? 1 : -1)
+      schedule()
+    },
+    /** Holds the current slide (e.g. while a video slide plays) without leaving play mode. */
+    hold(on) {
+      held = !!on
       schedule()
     },
     setHover(hovered) {

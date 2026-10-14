@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { videoSource } from '../runtime/styles.js'
 import { formatBytes } from '../lib/assets'
 import { resolveSource, type OverlayObject, type ProjectState, type SlideImage } from '../lib/project'
 import { NumberField } from './NumberField'
@@ -10,6 +11,8 @@ interface SlideshowInspectorProps {
   playing: boolean
   onChange: (changes: Partial<OverlayObject>, mergeKey?: string) => void
   onAddImages: () => void
+  onAddVideo?: () => void
+  onAddVideoLink?: (url: string) => void
   onReplaceImage: (slideId: string) => void
   onTogglePlay: () => void
   onStep: (direction: 1 | -1) => void
@@ -27,6 +30,8 @@ export function SlideshowInspector(props: SlideshowInspectorProps) {
   const { overlay, assets } = props
   const slides = overlay.slides ?? []
   const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [videoLink, setVideoLink] = useState('')
+  const linkOk = Boolean(videoSource(videoLink))
 
   const setSlides = (next: SlideImage[]) => {
     const startIndex = Math.min(overlay.startIndex ?? 0, Math.max(0, next.length - 1))
@@ -37,7 +42,7 @@ export function SlideshowInspector(props: SlideshowInspectorProps) {
     <section className="inspector-section" aria-label="Slideshow settings">
       <div className="section-heading">
         <h3>Slideshow</h3>
-        <span className="muted">{slides.length} image{slides.length === 1 ? '' : 's'}</span>
+        <span className="muted">{slides.length} slide{slides.length === 1 ? '' : 's'}</span>
       </div>
 
       <div className="slide-playback" role="group" aria-label="Slideshow preview controls">
@@ -52,7 +57,9 @@ export function SlideshowInspector(props: SlideshowInspectorProps) {
       <ol className="slide-list" aria-label="Slideshow images">
         {slides.map((slide, index) => {
           const asset = slide.assetId ? assets[slide.assetId] : undefined
-          const source = resolveSource({ assets }, slide)
+          const isVideo = slide.kind === 'video'
+          const linked = isVideo && !slide.assetId ? videoSource(slide.videoUrl) : null
+          const source = isVideo ? linked?.thumb ?? '' : resolveSource({ assets }, slide)
           const name = slide.alt ?? asset?.name ?? `Slide ${index + 1}`
           return (
             <li
@@ -77,12 +84,13 @@ export function SlideshowInspector(props: SlideshowInspectorProps) {
               onDragEnd={() => setDragIndex(null)}
             >
               <button type="button" className="slide-thumb" onClick={() => props.onGoTo(index)} aria-label={`Show slide ${index + 1}: ${name}`}>
-                {source ? <img src={source} alt="" draggable={false} /> : <span className="missing">Missing</span>}
+                {isVideo && slide.assetId && asset ? <video src={asset.dataUrl} muted preload="metadata" /> : source ? <img src={source} alt="" draggable={false} /> : <span className="missing">{isVideo ? '▶' : 'Missing'}</span>}
+                {isVideo && <span className="slide-video-badge" aria-hidden="true">▶</span>}
               </button>
               <div className="slide-info">
                 <span className="slide-name" title={name}>{index + 1}. {name}</span>
                 <span className="muted">
-                  {asset ? `${asset.width && asset.height ? `${asset.width}×${asset.height} · ` : ''}${formatBytes(asset.byteSize)}` : slide.src ? 'Linked image' : 'Missing asset'}
+                  {isVideo ? (asset ? `Video · ${formatBytes(asset.byteSize)}` : linked ? `${linked.kind === 'youtube' ? 'YouTube' : linked.kind === 'vimeo' ? 'Vimeo' : 'Video'} link` : 'Video link not supported') : asset ? `${asset.width && asset.height ? `${asset.width}×${asset.height} · ` : ''}${formatBytes(asset.byteSize)}` : slide.src ? 'Linked image' : 'Missing asset'}
                 </span>
               </div>
               <div className="slide-actions">
@@ -95,10 +103,28 @@ export function SlideshowInspector(props: SlideshowInspectorProps) {
           )
         })}
       </ol>
-      {!slides.length && <p className="empty-hint">No images yet. Add two or more images to create a slideshow.</p>}
-      <button type="button" className="primary block" onClick={props.onAddImages}>
-        {slides.length ? 'Add more images' : 'Add images'}
-      </button>
+      {!slides.length && <p className="empty-hint">No slides yet. Add two or more images or videos to create a slideshow.</p>}
+      <div className="slide-add-row">
+        <button type="button" className="primary" onClick={props.onAddImages} aria-label={slides.length ? 'Add more images' : 'Add images'}>
+          {slides.length ? '+ Images' : 'Add images'}
+        </button>
+        {props.onAddVideo && <button type="button" onClick={props.onAddVideo}>+ Video file</button>}
+      </div>
+      {props.onAddVideoLink && (
+        <form
+          className="slide-link-row"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!linkOk) return
+            props.onAddVideoLink?.(videoLink.trim())
+            setVideoLink('')
+          }}
+        >
+          <input value={videoLink} onChange={(event) => setVideoLink(event.target.value)} placeholder="YouTube / Vimeo link" aria-label="Video slide link" spellCheck={false} />
+          <button type="submit" disabled={!linkOk}>Add</button>
+        </form>
+      )}
+      {slides.some((slide) => slide.kind === 'video') && <p className="muted small">Video slides play with the sound off and the slideshow moves on when an uploaded video ends. YouTube / Vimeo slides start when the reader taps play.</p>}
 
       <div className="field-grid">
         <label>

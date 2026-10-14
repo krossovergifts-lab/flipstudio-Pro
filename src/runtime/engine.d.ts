@@ -70,6 +70,7 @@ export interface SlideshowController {
   next(): void
   previous(): void
   goTo(index: number): void
+  hold(on: boolean): void
   setHover(hovered: boolean): void
   reset(): void
   destroy(): void

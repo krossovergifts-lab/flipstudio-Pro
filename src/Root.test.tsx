@@ -66,13 +66,13 @@ describe('publication library home', () => {
     await waitFor(() => expect(screen.getByText('Create your first publication')).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: 'Blank publication' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: '‹ Library' })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Library' })).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Add text' }))
     fireEvent.change(screen.getByLabelText('Label'), { target: { value: 'Leather wallets' } })
     expect(screen.getByText('Unsaved')).toBeTruthy()
     await waitFor(() => expect(screen.getByText('Saved')).toBeTruthy(), { timeout: 20000 })
 
-    fireEvent.click(screen.getByRole('button', { name: '‹ Library' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Library' }))
     await waitFor(() => expect(card('Untitled publication')).toBeTruthy())
     expect(within(card('Untitled publication')).getByText('1 page')).toBeTruthy()
 
@@ -94,7 +94,7 @@ describe('publication library home', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Settings for Leather Collection' }))
     fireEvent.change(screen.getByLabelText('Folder'), { target: { value: screen.getByRole('option', { name: 'Clients' }).getAttribute('value') } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(within(card('Leather Collection')).getByText('📁 Clients')).toBeTruthy())
+    await waitFor(() => expect(within(card('Leather Collection')).getByText('Clients')).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: 'Duplicate Leather Collection' }))
     await waitFor(() => expect(card('Leather Collection (copy)')).toBeTruthy())
@@ -107,7 +107,7 @@ describe('publication library home', () => {
     await waitFor(() => expect(screen.queryByRole('listitem', { name: 'Leather Collection (copy)' })).toBeNull())
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Edit Leather Collection' })[0])
-    await waitFor(() => expect(screen.getByRole('button', { name: '‹ Library' })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Library' })).toBeTruthy())
     expect(document.querySelector('.page-canvas .fs-text')!.textContent).toBe('Leather wallets')
     expect(screen.getByText('Leather Collection', { selector: '.doc-title' })).toBeTruthy()
   })
@@ -128,7 +128,7 @@ describe('publication library home', () => {
     await waitFor(() => expect(screen.getByText('Gifts 2027', { selector: '.doc-title' })).toBeTruthy(), { timeout: 20000 })
     expect(document.querySelectorAll('.page-thumb')).toHaveLength(2)
 
-    fireEvent.click(screen.getByRole('button', { name: '‹ Library' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Library' }))
     await waitFor(() => expect(card('Gifts 2027')).toBeTruthy())
     expect(within(card('Gifts 2027')).getByText('2 pages')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Preview Gifts 2027' }))
@@ -199,7 +199,7 @@ describe('publication library home', () => {
     expect(github.files()['leather-gifts-2027/cover.jpg']).toBeTruthy()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }))
 
-    expect(within(card('Leather Gifts 2027')).getByText('● Live')).toBeTruthy()
+    expect(within(card('Leather Gifts 2027')).getByText('Live')).toBeTruthy()
     expect(within(card('Leather Gifts 2027')).getByRole('link', { name: 'krossovergifts-lab.github.io/flipbooks/leather-gifts-2027/' })).toBeTruthy()
 
     // Republish with nothing changed, then unpublish.
@@ -213,7 +213,7 @@ describe('publication library home', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Unpublish' }))
     fireEvent.click(within(dialog).getByRole('button', { name: 'Unpublish' }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Publish online' })).toBeNull(), { timeout: 20000 })
-    expect(within(card('Leather Gifts 2027')).queryByText('● Live')).toBeNull()
+    expect(within(card('Leather Gifts 2027')).queryByText('Live')).toBeNull()
     expect(Object.keys(github.files()).some((path) => path.startsWith('leather-gifts-2027/'))).toBe(false)
   })
 })

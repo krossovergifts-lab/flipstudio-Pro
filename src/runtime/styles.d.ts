@@ -85,3 +85,5 @@ export function cropStyle(overlay: { crop?: Partial<CropSettings> }): Record<str
 export function skinClassName(overlay: StyledObject): string
 export function normalizeWebUrl(value: unknown): string
 export function resolveAction(overlay: StyledObject): ResolvedAction
+export interface VideoSource { kind: 'youtube' | 'vimeo' | 'file'; src: string; id?: string; thumb?: string }
+export function videoSource(url: unknown, options?: { autoplay?: boolean; muted?: boolean; loop?: boolean; controls?: boolean }): VideoSource | null
