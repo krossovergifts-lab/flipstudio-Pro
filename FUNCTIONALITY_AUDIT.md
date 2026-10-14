@@ -189,6 +189,26 @@ Verified in this (Linux) workspace:
 ### Third-party licences
 `THIRD_PARTY_NOTICES.md` contains the MIT licence of StPageFlip and the OFL licence text of every bundled font. Exported ZIP READMEs list the fonts they embed.
 
+## Sixth pass (2026-10-14): reader v1.4 — centred book, bookmarks, auto flip, share
+
+- Centred layout: a lone cover or last page is shifted to the middle; the book glides to the
+  spread centre while turning. Verified in Preview and export (e2e6 C1–C3).
+- Fixed: turning back to the cover showed the old page 2 under the turning page (StPageFlip
+  keeps drawing the lifted page when the turn ends on a single page) — the lifted page is
+  hidden for the duration of the turn (G1, G2).
+- Fixed: page-turn sound did not play for drag turns (StPageFlip never reports "flipping" for
+  a released drag) and could be blocked by the browser's autoplay rule — sound now unlocks on
+  the first click/key and plays on every turn kind (SND1, SND2).
+- Fixed: Zoom in → Reset left the book larger than the window (StPageFlip reset the width
+  to 100% on rebuild).
+- New: first/last page buttons, side arrows, click the page counter to type a page; zoom
+  button toggles zoom ↔ reset; bookmark tabs (text, hex colours, hover effect), Contents,
+  My bookmarks (saved in the reader's browser), auto flip (interval, start delay, loop,
+  right-click for speed), share popover + email, Download PDF, top search bar, logo top-left.
+- Design window redesigned: section list on the left, settings in the middle, live preview
+  on the right. Publish "where" step redesigned as two clear cards.
+- Tests: Vitest 98/98, oxlint clean, Playwright e2e 46 + 19 + 24 + 24 + 16 + 28 checks pass.
+
 ## Fifth pass (2026-10-14): 250-page catalogue, brand-free website, flipbook design
 
 ### Added

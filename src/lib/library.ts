@@ -71,7 +71,7 @@ const BLOB_MIN = 2048
 /** Content key for a data URL: hash + length + extension, e.g. "1a2b3c4d-523441.jpg". */
 export function blobKey(dataUrl: string): string {
   const mime = /^data:([^;,]+)/.exec(dataUrl)?.[1] ?? 'application/octet-stream'
-  const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg', 'font/woff2': 'woff2', 'font/woff': 'woff', 'font/ttf': 'ttf', 'font/otf': 'otf', 'video/mp4': 'mp4', 'audio/mpeg': 'mp3' } as Record<string, string>)[mime] ?? 'bin'
+  const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg', 'font/woff2': 'woff2', 'font/woff': 'woff', 'font/ttf': 'ttf', 'font/otf': 'otf', 'video/mp4': 'mp4', 'audio/mpeg': 'mp3', 'application/pdf': 'pdf', 'audio/wav': 'wav', 'audio/ogg': 'ogg' } as Record<string, string>)[mime] ?? 'bin'
   return `${hashString(dataUrl)}-${dataUrl.length}.${ext}`
 }
 
@@ -139,7 +139,7 @@ function dataUrlBytes(dataUrl: string): Uint8Array {
   return bytes
 }
 
-const MIME_BY_EXT: Record<string, string> = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml', woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf', mp4: 'video/mp4', mp3: 'audio/mpeg', bin: 'application/octet-stream' }
+const MIME_BY_EXT: Record<string, string> = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml', woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf', mp4: 'video/mp4', mp3: 'audio/mpeg', pdf: 'application/pdf', wav: 'audio/wav', ogg: 'audio/ogg', bin: 'application/octet-stream' }
 
 function bytesToDataUrl(bytes: Uint8Array, key: string): string {
   const ext = key.split('.').pop() ?? 'bin'

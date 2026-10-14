@@ -147,10 +147,20 @@ export function createFlipSound(win, kind, customUrl) {
     get enabled() { return kind !== 'none' && (kind !== 'custom' || !!customUrl) },
     get muted() { return muted },
     setMuted(value) { muted = !!value },
+    /** Call from a click/touch/key handler: browsers only start audio after a user gesture. */
+    unlock() {
+      if (kind === 'none' || kind === 'custom' || !AudioCtx) return
+      try {
+        if (!ctx) ctx = new AudioCtx()
+        if (ctx.state === 'suspended' && ctx.resume) ctx.resume()
+      } catch (error) {
+        void error
+      }
+    },
     play() {
       if (muted || kind === 'none') return
       const time = Date.now()
-      if (time - last < 120) return
+      if (time - last < 350) return
       last = time
       try {
         if (kind === 'custom') {

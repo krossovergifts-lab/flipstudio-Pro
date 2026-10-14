@@ -29,20 +29,51 @@ The window walks you through four steps:
 2. **Create repository ↗** – a new GitHub repository for this catalogue (Private is fine).
 3. **Open my keys ↗** – edit your *FlipStudio Pro publishing* key → Repository access →
    add the new repository → **Update** (no new key needed).
-4. **Open Cloudflare ↗** – create a free account, then **Workers & Pages → Create →
-   Pages → Import an existing Git repository** → pick the repository → Project name:
-   paste the name from step 1 → Framework preset **None**, Build command empty, Build
-   output directory `/` → **Save and Deploy**. Cloudflare shows the address
-   (if the name was taken it adds a few letters — copy exactly what it shows).
+4. **Open Cloudflare ↗** – create a free account, then:
+   1. **Workers & Pages → Create application → Pages** tab (not *Workers*) →
+      **Import an existing Git repository**.
+   2. Connect GitHub. On GitHub's "Install Cloudflare" page choose
+      **Only select repositories**, pick the new catalogue repository → **Install & Authorize**.
+   3. Pick the repository → **Begin setup**. Project name: paste the name from step 1.
+      Framework preset **None**, Build command `exit 0`, Build output directory empty →
+      **Save and Deploy**. Cloudflare shows the address (if the name was taken it adds a few
+      letters — copy exactly what it shows).
 5. Back in the app: check the address, click **Connect website**, then **Publish**.
 
 Each later **Update online version** goes live in about a minute.
 
-**Your own domain (optional, about USD 10/year):** buy a neutral name such as
-`giftscatalogue2027.com` (Cloudflare Registrar, Namecheap, GoDaddy…). In Cloudflare →
-your Pages project → **Custom domains → Set up a domain**, follow the DNS step, then in the
-app open **Website → Settings** and change the address to `https://giftscatalogue2027.com`
-and publish again (so WhatsApp previews use the new domain).
+Do **not** use Cloudflare's "Add a website / domain" screen for this step — that is for
+moving a domain's DNS to Cloudflare and is only needed for your own domain (below).
+
+## Your own domain on Cloudflare (optional, about USD 10/year)
+
+Pick a neutral name with no brand in it, e.g. `giftscatalogue2027.com`.
+
+**A. Buy the domain**
+- Easiest: Cloudflare dashboard → **Domain Registration → Register Domains** (at-cost price,
+  DNS is set up automatically — skip step B).
+- Or buy it at Namecheap / GoDaddy / any registrar and do step B.
+
+**B. Only if the domain was bought elsewhere: move its DNS to Cloudflare**
+1. Cloudflare dashboard → **Add a domain** (the "Add a website" screen) → type
+   `giftscatalogue2027.com` → *Quick scan for DNS records* → **Continue** → choose the **Free** plan.
+2. Cloudflare shows two nameservers (like `ada.ns.cloudflare.com`). At your registrar, replace
+   the domain's nameservers with these two. Wait until Cloudflare emails "your domain is
+   active" (minutes to a few hours).
+
+**C. Attach the domain to the catalogue**
+1. **Workers & Pages →** your catalogue project → **Custom domains → Set up a custom domain**.
+2. Type `giftscatalogue2027.com` (or a sub-address such as `catalogue.giftscatalogue2027.com`)
+   → **Continue → Activate domain**. Cloudflare creates the DNS record and the HTTPS
+   certificate by itself; status turns **Active** within a few minutes.
+   - Want `www.` too? Add `www.giftscatalogue2027.com` the same way.
+   - A sub-address on a domain whose DNS is **not** on Cloudflare also works: at your DNS
+     provider add a **CNAME** record `catalogue` → `<project>.pages.dev`, then activate.
+3. In FlipStudio Pro: **🌐 Publish → Website → Settings**, change the website address to
+   `https://giftscatalogue2027.com`, save, then **Update online version** — so links, the
+   Share button and WhatsApp previews use the new domain.
+
+The `*.pages.dev` address keeps working as well.
 
 ## Bookshelf on GitHub Pages (many publications on one site)
 
@@ -77,7 +108,8 @@ In the setup window click **Use Vercel, Cloudflare or my own domain**.
    - **Vercel**: Add New → Project → import `flipbooks` → Framework preset **Other**, no build command → Deploy.
      The free Hobby plan is non-commercial; use a Pro team for company catalogues.
    - **Cloudflare Pages** (free, commercial use allowed): Workers & Pages → Create → Pages →
-     Connect to Git → `flipbooks` → preset **None**, output directory `/` → Deploy.
+     Pages tab → Import an existing Git repository → `flipbooks` → preset **None**,
+     Build command `exit 0`, output directory empty → Save and Deploy.
 3. Fill in owner, repository, branch (`main`), key and the address the host gives you, click
    **Test connection**, then **Save settings**.
 

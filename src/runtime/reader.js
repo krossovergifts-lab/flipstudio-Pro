@@ -36,7 +36,7 @@ export function mountPublication(root, data, options) {
   const sound = createFlipSound(win, readerSettings.sound || 'paper', readerSettings.soundUrl)
   const storage = (() => { try { return win.localStorage } catch (error) { void error; return null } })()
   try { if (storage && storage.getItem('fs-sound-muted') === '1') sound.setMuted(true) } catch (error) { void error }
-  const ZOOMS = [1, 1.6, 2.4]
+  const ZOOMS = [1, 2, 3]
   let zoom = 1
   let panX = 0
   let panY = 0
@@ -60,6 +60,8 @@ export function mountPublication(root, data, options) {
   }
 
   // ---------- chrome ----------
+  // Layout: top bar (logo, title, search) · stage (book, side arrows, bookmark tabs,
+  // panels) · tool bar (view tools | page navigation | share tools), all centred.
   root.replaceChildren()
   root.classList.add('fs-reader')
   const themeVars = themeVariables(readerSettings)
@@ -68,17 +70,27 @@ export function mountPublication(root, data, options) {
   const ICONS = {
     prev: '<path d="M15 18l-6-6 6-6"/>',
     next: '<path d="M9 18l6-6-6-6"/>',
+    first: '<path d="M17 18l-6-6 6-6M7 6v12"/>',
+    last: '<path d="M7 18l6-6-6-6M17 6v12"/>',
     pages: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    toc: '<path d="M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+    bookmark: '<path d="M6 3h12v18l-6-4-6 4z"/>',
     zoom: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>',
-    zoomOut: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>',
+    zoomReset: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>',
     search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
     select: '<path d="M9 4h6M9 20h6M12 4v16"/>',
     sound: '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12"/>',
     muted: '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9l5 6M22 9l-5 6"/>',
     full: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    auto: '<circle cx="12" cy="12" r="9"/><path d="M10 8.5l5 3.5-5 3.5z"/>',
+    autoStop: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9h1.8v6H9.5zM12.7 9h1.8v6h-1.8z"/>',
+    share: '<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/>',
+    download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+    mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
   }
+  const svgIcon = (icon) => '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' + ICONS[icon] + '</svg>'
   const setIcon = (button, icon, label) => {
-    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' + ICONS[icon] + '</svg><span class="fs-btn-label"></span>'
+    button.innerHTML = svgIcon(icon) + '<span class="fs-btn-label"></span>'
     button.lastChild.textContent = label
     button.setAttribute('aria-label', label)
     button.setAttribute('title', label)
@@ -88,10 +100,10 @@ export function mountPublication(root, data, options) {
     setIcon(button, icon, label)
     return button
   }
+
+  // Top bar
   const topBar = make('div', 'fs-reader-bar fs-reader-top')
-  const leftGroup = make('div', 'fs-bar-group fs-bar-left')
-  const centerGroup = make('div', 'fs-bar-group fs-bar-center')
-  const rightGroup = make('div', 'fs-bar-group fs-bar-right')
+  const brand = make('div', 'fs-top-brand')
   if (readerSettings.logo) {
     const logo = make(readerSettings.logoLink ? 'a' : 'span', 'fs-reader-logo')
     if (readerSettings.logoLink) {
@@ -103,29 +115,73 @@ export function mountPublication(root, data, options) {
       }
     }
     logo.append(make('img', '', { src: readerSettings.logo, alt: '' }))
-    leftGroup.append(logo)
+    brand.append(logo)
   }
-  const prevButton = iconButton('previous-page', 'prev', 'Previous page')
-  const pageCount = make('span', 'fs-reader-count', { 'aria-live': 'polite', 'data-role': 'page-count' })
-  const nextButton = iconButton('next-page', 'next', 'Next page')
-  const thumbsButton = iconButton('thumbnails', 'pages', 'All pages', '', { 'aria-expanded': 'false' })
-  const zoomButton = iconButton('zoom', 'zoom', 'Zoom in', '', { 'aria-pressed': 'false' })
-  const fullscreenButton = iconButton('fullscreen', 'full', 'Full screen', 'fs-reader-fullscreen')
-  const selectButton = iconButton('select-text', 'select', 'Select text', 'fs-reader-select', { 'aria-pressed': 'false' })
-  const searchButton = iconButton('search', 'search', 'Search', 'fs-reader-search', { 'aria-expanded': 'false' })
-  const soundButton = iconButton('sound', sound.muted ? 'muted' : 'sound', sound.muted ? 'Turn page sound on' : 'Mute page sound', 'fs-reader-sound', { 'aria-pressed': String(!sound.muted) })
-  centerGroup.append(prevButton, pageCount, nextButton)
-  if (pages.length > 2 && readerSettings.thumbnails !== false) rightGroup.append(thumbsButton)
-  rightGroup.append(zoomButton)
-  if (textTools) rightGroup.append(searchButton, selectButton)
-  if (sound.enabled) rightGroup.append(soundButton)
-  rightGroup.append(fullscreenButton)
-  topBar.append(leftGroup, centerGroup, rightGroup)
+  if (readerSettings.showTitle !== false && data.title) {
+    const title = make('span', 'fs-top-title')
+    title.textContent = data.title
+    brand.append(title)
+  }
+  const searchForm = make('form', 'fs-top-search', { role: 'search' })
+  searchForm.innerHTML = svgIcon('search')
+  const searchInput = make('input', 'fs-top-search-input', { type: 'search', placeholder: 'Search…', 'aria-label': 'Search text', autocomplete: 'off' })
+  searchForm.append(searchInput)
+  topBar.append(brand)
+  if (textTools) topBar.append(searchForm)
 
+  // Stage
   const stage = make('div', 'fs-stage')
   const host = make('div', 'fs-book-host')
+  // Large arrows at the sides (duplicates of the toolbar buttons, so hidden from assistive tech).
+  const sidePrev = make('button', 'fs-side-nav fs-side-prev', { type: 'button', tabindex: '-1', 'aria-hidden': 'true', 'data-action': 'side-previous' })
+  sidePrev.innerHTML = svgIcon('prev')
+  const sideNext = make('button', 'fs-side-nav fs-side-next', { type: 'button', tabindex: '-1', 'aria-hidden': 'true', 'data-action': 'side-next' })
+  sideNext.innerHTML = svgIcon('next')
   stage.append(host)
+  if (readerSettings.sideArrows !== false) stage.append(sidePrev, sideNext)
 
+  // Tool bar
+  const toolsBar = make('div', 'fs-reader-bar fs-reader-tools')
+  const leftGroup = make('div', 'fs-bar-group fs-bar-left')
+  const centerGroup = make('div', 'fs-bar-group fs-bar-center')
+  const rightGroup = make('div', 'fs-bar-group fs-bar-right')
+  const zoomButton = iconButton('zoom', 'zoom', 'Zoom in', '', { 'aria-pressed': 'false' })
+  const thumbsButton = iconButton('thumbnails', 'pages', 'All pages', '', { 'aria-expanded': 'false' })
+  const tocButton = iconButton('contents', 'toc', 'Contents', '', { 'aria-expanded': 'false' })
+  const marksButton = iconButton('bookmarks', 'bookmark', 'My bookmarks', '', { 'aria-expanded': 'false' })
+  const autoButton = iconButton('auto-flip', 'auto', 'Auto flip', '', { 'aria-pressed': 'false' })
+  const soundButton = iconButton('sound', sound.muted ? 'muted' : 'sound', sound.muted ? 'Turn page sound on' : 'Mute page sound', 'fs-reader-sound', { 'aria-pressed': String(!sound.muted) })
+  const firstButton = iconButton('first-page', 'first', 'First page')
+  const prevButton = iconButton('previous-page', 'prev', 'Previous page')
+  const pageCount = make('button', 'fs-reader-count', { type: 'button', 'aria-live': 'polite', 'data-role': 'page-count', title: 'Go to page' })
+  const nextButton = iconButton('next-page', 'next', 'Next page')
+  const lastButton = iconButton('last-page', 'last', 'Last page')
+  const shareButton = iconButton('share', 'share', 'Share', '', { 'aria-expanded': 'false' })
+  const downloadLink = make('a', 'fs-reader-btn fs-icon-btn', { 'data-action': 'download', href: readerSettings.downloadUrl || '#', download: readerSettings.downloadName || ((data.title || 'catalogue') + '.pdf') })
+  downloadLink.innerHTML = svgIcon('download') + '<span class="fs-btn-label">Download PDF</span>'
+  downloadLink.setAttribute('aria-label', 'Download PDF')
+  downloadLink.setAttribute('title', 'Download PDF')
+  const emailButton = iconButton('email', 'mail', 'Email')
+  const selectButton = iconButton('select-text', 'select', 'Select text', 'fs-reader-select', { 'aria-pressed': 'false' })
+  const fullscreenButton = iconButton('fullscreen', 'full', 'Full screen', 'fs-reader-fullscreen')
+  const shareUrl = () => data.shareUrl || (/^https?:/i.test(String(win.location && win.location.href)) ? String(win.location.href).split('#')[0] : '')
+  const many = pages.length > 2
+
+  leftGroup.append(zoomButton)
+  if (many && readerSettings.thumbnails !== false) leftGroup.append(thumbsButton)
+  if (many && readerSettings.contents !== false) leftGroup.append(tocButton)
+  if (many && readerSettings.readerBookmarks !== false) leftGroup.append(marksButton)
+  if (pages.length > 1 && readerSettings.autoFlipButton !== false) leftGroup.append(autoButton)
+  if (sound.enabled) leftGroup.append(soundButton)
+  centerGroup.append(firstButton, prevButton, pageCount, nextButton, lastButton)
+  if (readerSettings.share !== false) rightGroup.append(shareButton)
+  if (readerSettings.downloadUrl) rightGroup.append(downloadLink)
+  if (readerSettings.share !== false) rightGroup.append(emailButton)
+  if (textTools) rightGroup.append(selectButton)
+  rightGroup.append(fullscreenButton)
+  toolsBar.append(leftGroup, centerGroup, rightGroup)
+
+  // Animation timeline (editor Preview only; published books just play their animations)
   const bottomBar = make('div', 'fs-reader-bar fs-reader-bottom')
   const playButton = make('button', 'fs-reader-btn', { type: 'button', 'data-action': 'play' })
   playButton.textContent = 'Play'
@@ -137,10 +193,10 @@ export function mountPublication(root, data, options) {
   const timeLabel = make('span', 'fs-reader-time', { 'data-role': 'time' })
   timeLabel.textContent = '0.00s'
   bottomBar.append(playButton, stopButton, scrubber, timeLabel)
-  if (!animations.length) {
+  if (!animations.length || opts.showTimeline === false) {
     bottomBar.hidden = true
   }
-  root.append(topBar, stage, bottomBar)
+  root.append(topBar, stage, toolsBar, bottomBar)
 
   // ---------- objects ----------
   const createSlideshow = (overlay, el) => {
@@ -466,15 +522,23 @@ export function mountPublication(root, data, options) {
     const spread = visiblePages()
     const first = spread[0]
     const last = spread[spread.length - 1]
-    pageCount.textContent = (total ? (first === last ? String(first + 1) : (first + 1) + '–' + (last + 1)) : '0') + ' / ' + total
+    if (!pageCount.querySelector('input')) pageCount.textContent = (total ? (first === last ? String(first + 1) : (first + 1) + '–' + (last + 1)) : '0') + ' / ' + total
     prevButton.disabled = first <= 0
+    firstButton.disabled = first <= 0
+    sidePrev.disabled = first <= 0
     nextButton.disabled = last >= total - 1
+    lastButton.disabled = last >= total - 1
+    sideNext.disabled = last >= total - 1
     root.setAttribute('data-current-page', String(currentPage))
+    markTabs()
   }
   const onPageOpened = () => {
     updateCount()
     loadPageImages()
+    layoutTabs()
+    centerBook()
     if (thumbsPanel) markThumbs()
+    if (drawer) markDrawer()
     if (hasText) win.requestAnimationFrame(fitVisibleText)
     if (opts.onPageChange) opts.onPageChange(currentPage)
     if (animations.length && data.restartAnimationsOnPageTurn !== false) clock.restart()
@@ -508,6 +572,8 @@ export function mountPublication(root, data, options) {
     if (book && bookPortrait === portrait && bookMouse === mouseFlipping()) {
       host.firstElementChild.style.width = Math.floor(width) + 'px'
       book.update()
+      layoutTabs()
+      centerBook()
       return
     }
     if (book) {
@@ -526,6 +592,9 @@ export function mountPublication(root, data, options) {
     }
     try {
       book = createBook(mount, portrait)
+      // StPageFlip's stretch mode resets the block to width:100%; keep the fitted width.
+      mount.style.width = Math.floor(width) + 'px'
+      try { book.update() } catch (error) { void error }
     } catch (error) {
       // A page-turn engine failure must not take the publication down: fall
       // back to one-page-at-a-time navigation with the same pages and objects.
@@ -536,6 +605,14 @@ export function mountPublication(root, data, options) {
       layoutFallback()
     }
     updateCount()
+    layoutTabs()
+    // No transition for the first placement.
+    const placed = bookMount()
+    if (placed) {
+      placed.classList.add('fs-no-transition')
+      centerBook()
+      win.requestAnimationFrame(() => placed.classList.remove('fs-no-transition'))
+    }
   }
 
   const createBook = (mount, portrait) => {
@@ -564,6 +641,7 @@ export function mountPublication(root, data, options) {
     bookMouse = mouseFlipping()
     mount.style.minWidth = '0'
     mount.style.minHeight = '0'
+    mount.append(tabRail)
     try {
       instance.loadFromHTML(pageElements)
     } catch (error) {
@@ -590,17 +668,133 @@ export function mountPublication(root, data, options) {
       } catch (error) { void error }
     }
     instance.on('changeState', (event) => {
-      if (event && event.data === 'flipping') sound.play()
+      const state = event && event.data
+      flipState = state
+      if (state === 'flipping') {
+        sound.play()
+        beginTurn(instance)
+      } else if (state === 'user_fold') {
+        beginTurn(instance)
+      } else if (state === 'read') {
+        endTurn()
+      }
     })
     instance.on('flip', (event) => {
       currentPage = Number(event.data) || 0
+      // Drag-and-release turns do not pass through the "flipping" state: make sure they sound too.
+      if (Date.now() - lastSoundAt > 1200) sound.play()
+      endTurn()
       onPageOpened()
     })
     return instance
   }
 
+  // ---------- centring, page-turn fixes and bookmark tabs ----------
+  let flipState = 'read'
+  let lastSoundAt = 0
+  const playSound = sound.play
+  sound.play = () => { lastSoundAt = Date.now(); playSound() }
+  const bookMount = () => (book ? host.firstElementChild : null)
+  /** Shift (px) that centres a lone cover (shown on the right) or a lone last page (shown on the left). */
+  const centreShift = (shown) => {
+    if (!book || bookPortrait || readerSettings.centerSinglePages === false) return 0
+    let rect = null
+    try { rect = book.getBoundsRect() } catch (error) { void error }
+    if (!rect || !rect.pageWidth) return 0
+    if (shown.length !== 1) return 0
+    if (shown[0] === 0) return -rect.pageWidth / 2
+    if (shown[0] === pages.length - 1 && pages.length % 2 === 0) return rect.pageWidth / 2
+    return 0
+  }
+  const applyShift = (shift) => {
+    const mount = bookMount()
+    if (!mount) return
+    mount.style.transform = shift ? 'translateX(' + Math.round(shift) + 'px)' : ''
+  }
+  const centerBook = () => applyShift(centreShift(visiblePages()))
+  let hiddenDuringTurn = []
+  /** At the start of a turn: centre for the destination, and hide the page being lifted off a lone cover/last page. */
+  const beginTurn = (instance) => {
+    let controller = null
+    try { controller = instance.getFlipController ? instance.getFlipController() : null } catch (error) { void error }
+    const flipping = controller && controller.flippingPage
+    const bottom = controller && controller.bottomPage
+    if (!flipping || !bottom) return
+    const indexOf = (page) => pageElements.indexOf(page && page.getElement ? page.getElement() : page && page.element)
+    const a = indexOf(flipping)
+    const b = indexOf(bottom)
+    if (a < 0 || b < 0) return
+    const destination = a === b ? [a] : [Math.min(a, b), Math.max(a, b)]
+    applyShift(centreShift(destination))
+    // StPageFlip keeps drawing the old page under a turn that ends on a single page
+    // (back to the cover, or on to a lone last page). Hide it so the turn looks real.
+    if (a === b && !bookPortrait) {
+      const shown = visiblePages()
+      const lifted = a === 0 ? shown[0] : shown[shown.length - 1]
+      const el = typeof lifted === 'number' && lifted !== a ? pageElements[lifted] : null
+      if (el && hiddenDuringTurn.indexOf(el) < 0) {
+        el.classList.add('fs-turn-hidden')
+        hiddenDuringTurn.push(el)
+      }
+    }
+  }
+  const endTurn = () => {
+    hiddenDuringTurn.forEach((el) => el.classList.remove('fs-turn-hidden'))
+    hiddenDuringTurn = []
+  }
+
+  // Bookmark tabs on the edge of the book (publisher's sections)
+  const sections = pages.map((page, index) => (page.bookmark && page.bookmark.label ? { index, label: page.bookmark.label, color: page.bookmark.color, textColor: page.bookmark.textColor } : null)).filter(Boolean)
+  const tabRail = make('div', 'fs-tabs', { 'data-effect': readerSettings.tabEffect || 'slide' })
+  const tabButtons = sections.map((section) => {
+    const tab = make('button', 'fs-tab', { type: 'button', title: section.label + ' — page ' + (section.index + 1), 'data-page': String(section.index) })
+    const text = make('span')
+    text.textContent = section.label
+    tab.append(text)
+    if (section.color) tab.style.setProperty('--fs-tab-bg', section.color)
+    if (section.textColor) tab.style.setProperty('--fs-tab-text', section.textColor)
+    tab.addEventListener('click', (event) => {
+      event.stopPropagation()
+      if (zoom !== 1) setZoom(1)
+      openPage(section.index)
+    })
+    tab.addEventListener('pointerdown', (event) => event.stopPropagation())
+    tab.addEventListener('mousedown', (event) => event.stopPropagation())
+    tabRail.append(tab)
+    return tab
+  })
+  const currentSection = () => {
+    let found = -1
+    const shown = visiblePages()
+    const last = shown[shown.length - 1]
+    sections.forEach((section, i) => { if (section.index <= last) found = i })
+    return found
+  }
+  const markTabs = () => {
+    const active = currentSection()
+    tabButtons.forEach((tab, i) => tab.classList.toggle('is-current', i === active))
+  }
+  /** Places the tab rail along the right edge of the visible page(s), in book coordinates. */
+  const layoutTabs = () => {
+    if (!sections.length || readerSettings.tabs === false || !book) { tabRail.hidden = true; return }
+    let rect = null
+    try { rect = book.getBoundsRect() } catch (error) { void error }
+    if (!rect || !rect.pageWidth || rect.pageWidth < 220) { tabRail.hidden = true; return }
+    tabRail.hidden = false
+    const shown = visiblePages()
+    const loneLast = !bookPortrait && shown.length === 1 && shown[0] === pages.length - 1 && shown[0] !== 0
+    const right = loneLast ? rect.left + rect.pageWidth : rect.left + rect.width
+    tabRail.style.left = Math.round(right) + 'px'
+    tabRail.style.top = Math.round(rect.top) + 'px'
+    tabRail.style.height = Math.round(rect.height) + 'px'
+    const size = Math.max(18, Math.min(34, rect.pageWidth * 0.045))
+    tabRail.style.setProperty('--fs-tab-size', Math.round(size) + 'px')
+    tabRail.style.setProperty('--fs-tab-count', String(Math.max(sections.length, 6)))
+  }
+
   const goPage = (direction) => {
     if (book) {
+      if (flipState === 'flipping' || flipState === 'user_fold') return
       if (direction > 0) book.flipNext()
       else book.flipPrev()
       return
@@ -655,8 +849,7 @@ export function mountPublication(root, data, options) {
     host.style.transform = zoom === 1 ? '' : 'translate(' + Math.round(panX) + 'px, ' + Math.round(panY) + 'px) scale(' + zoom + ')'
     root.classList.toggle('fs-zoomed', zoom > 1)
     zoomButton.setAttribute('aria-pressed', String(zoom > 1))
-    const last = zoom >= ZOOMS[ZOOMS.length - 1]
-    setIcon(zoomButton, last ? 'zoomOut' : 'zoom', last ? 'Zoom out' : 'Zoom in')
+    setIcon(zoomButton, zoom > 1 ? 'zoomReset' : 'zoom', zoom > 1 ? 'Reset zoom' : 'Zoom in')
   }
   /** Zooms to `level`, keeping the point (clientX, clientY) under the pointer. */
   const setZoom = (level, clientX, clientY) => {
@@ -680,10 +873,8 @@ export function mountPublication(root, data, options) {
     // Dragging pans the zoomed page instead of turning it.
     if (flipModeChanged && book) buildBook()
   }
-  listen(zoomButton, 'click', () => {
-    const index = ZOOMS.indexOf(zoom)
-    setZoom(index >= 0 && index < ZOOMS.length - 1 ? ZOOMS[index + 1] : 1)
-  })
+  // The button switches between "zoomed in" and the normal view; double-click and Ctrl+wheel zoom at the pointer.
+  listen(zoomButton, 'click', () => setZoom(zoom === 1 ? 2 : 1))
   listen(stage, 'dblclick', (event) => {
     if (selectMode || (event.target && event.target.closest && event.target.closest('.fs-overlay, .fs-search, .fs-thumbs, .fs-popup-backdrop'))) return
     event.preventDefault()
@@ -739,6 +930,7 @@ export function mountPublication(root, data, options) {
   }
   const openThumbs = () => {
     if (thumbsPanel) { closeThumbs(); return }
+    closeDrawer()
     const panel = make('div', 'fs-thumbs', { role: 'dialog', 'aria-label': 'All pages' })
     const head = make('div', 'fs-thumbs-head')
     const title = make('strong')
@@ -819,70 +1011,368 @@ export function mountPublication(root, data, options) {
     })
     fitText(match.page)
   }
+  // Results drop down under the search box in the top bar.
   const closeSearch = () => {
     if (!searchPanel) return
     searchPanel.remove()
     searchPanel = null
     clearHits()
-    searchButton.setAttribute('aria-expanded', 'false')
+    root.classList.remove('fs-searching')
+  }
+  let searchTimer = 0
+  const runSearch = () => {
+    const query = searchInput.value.trim()
+    if (!query) { closeSearch(); return }
+    if (!searchPanel) {
+      searchPanel = make('div', 'fs-search', { role: 'region', 'aria-label': 'Search results' })
+      const head = make('div', 'fs-search-head')
+      const status = make('div', 'fs-search-status', { 'aria-live': 'polite' })
+      const close = make('button', 'fs-search-close', { type: 'button', 'aria-label': 'Close search' })
+      close.textContent = '×'
+      close.addEventListener('click', () => { searchInput.value = ''; closeSearch() })
+      head.append(status, close)
+      searchPanel.append(head, make('ol', 'fs-search-results'))
+      root.append(searchPanel)
+      root.classList.add('fs-searching')
+    }
+    const status = searchPanel.querySelector('.fs-search-status')
+    const list = searchPanel.querySelector('.fs-search-results')
+    list.replaceChildren()
+    if (query.length < 2) { status.textContent = 'Type at least 2 letters.'; clearHits(); return }
+    const matches = findMatches(query)
+    status.textContent = matches.length ? matches.length + (matches.length >= 200 ? '+' : '') + ' result' + (matches.length === 1 ? '' : 's') : 'No results'
+    matches.slice(0, 100).forEach((match) => {
+      const text = pageTexts[match.page].text
+      const item = make('li')
+      const button = make('button', 'fs-search-hit', { type: 'button' })
+      const label = make('strong')
+      label.textContent = 'Page ' + (match.page + 1)
+      const before = text.slice(Math.max(0, match.start - 30), match.start).replace(/\s+/g, ' ')
+      const after = text.slice(match.end, match.end + 40).replace(/\s+/g, ' ')
+      const mark = make('mark')
+      mark.textContent = text.slice(match.start, match.end)
+      const snippet = make('span')
+      snippet.append((match.start > 30 ? '…' : '') + before, mark, after + '…')
+      button.append(label, snippet)
+      button.addEventListener('click', () => {
+        if (zoom !== 1) setZoom(1)
+        openPage(match.page)
+        // Highlight once the page is on screen (after the flip starts).
+        win.requestAnimationFrame(() => highlight(match))
+        win.setTimeout(() => highlight(match), 900)
+      })
+      item.append(button)
+      list.append(item)
+    })
+    if (matches[0]) highlight(matches[0])
   }
   const openSearch = () => {
-    if (searchPanel) { searchPanel.querySelector('input').focus(); return }
-    const panel = make('div', 'fs-search', { role: 'search' })
-    const input = make('input', 'fs-search-input', { type: 'search', placeholder: 'Search text…', 'aria-label': 'Search text' })
-    const close = make('button', 'fs-search-close', { type: 'button', 'aria-label': 'Close search' })
-    close.textContent = '\u00d7'
-    const status = make('div', 'fs-search-status', { 'aria-live': 'polite' })
-    const list = make('ol', 'fs-search-results')
-    const head = make('div', 'fs-search-head')
-    head.append(input, close)
-    panel.append(head, status, list)
-    let timer = 0
-    const run = () => {
-      list.replaceChildren()
-      const query = input.value.trim()
-      if (query.length < 2) { status.textContent = query ? 'Type at least 2 letters.' : ''; clearHits(); return }
-      const matches = findMatches(query)
-      status.textContent = matches.length ? matches.length + (matches.length >= 200 ? '+' : '') + ' result' + (matches.length === 1 ? '' : 's') : 'No results'
-      matches.slice(0, 100).forEach((match) => {
-        const text = pageTexts[match.page].text
-        const item = make('li')
-        const button = make('button', 'fs-search-hit', { type: 'button' })
-        const label = make('strong')
-        label.textContent = 'Page ' + (match.page + 1)
-        const before = text.slice(Math.max(0, match.start - 30), match.start).replace(/\s+/g, ' ')
-        const after = text.slice(match.end, match.end + 40).replace(/\s+/g, ' ')
-        const mark = make('mark')
-        mark.textContent = text.slice(match.start, match.end)
-        const snippet = make('span')
-        snippet.append((match.start > 30 ? '…' : '') + before, mark, after + '…')
-        button.append(label, snippet)
-        button.addEventListener('click', () => {
-          openPage(match.page)
-          // Highlight once the page is on screen (after the flip starts).
-          win.requestAnimationFrame(() => highlight(match))
-          win.setTimeout(() => highlight(match), 750)
-        })
-        item.append(button)
-        list.append(item)
-      })
-      if (matches[0]) highlight(matches[0])
-    }
-    input.addEventListener('input', () => { win.clearTimeout(timer); timer = win.setTimeout(run, 180) })
-    input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') { win.clearTimeout(timer); run(); const first = list.querySelector('button'); if (first) first.click() }
-      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeSearch(); searchButton.focus() }
-    })
-    close.addEventListener('click', closeSearch)
-    stage.append(panel)
-    searchPanel = panel
-    searchButton.setAttribute('aria-expanded', 'true')
-    input.focus()
+    searchInput.focus()
+    searchInput.select()
   }
-  listen(searchButton, 'click', () => { if (searchPanel) closeSearch(); else openSearch() })
+  listen(searchInput, 'input', () => { win.clearTimeout(searchTimer); searchTimer = win.setTimeout(runSearch, 180) })
+  listen(searchForm, 'submit', (event) => {
+    event.preventDefault()
+    win.clearTimeout(searchTimer)
+    runSearch()
+    const first = searchPanel && searchPanel.querySelector('.fs-search-hit')
+    if (first) first.click()
+  })
+  listen(searchInput, 'keydown', (event) => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); searchInput.value = ''; closeSearch(); searchInput.blur() }
+  })
 
   listen(prevButton, 'click', () => goPage(-1))
   listen(nextButton, 'click', () => goPage(1))
+  listen(sidePrev, 'click', () => goPage(-1))
+  listen(sideNext, 'click', () => goPage(1))
+  listen(firstButton, 'click', () => { if (zoom !== 1) setZoom(1); openPage(0) })
+  listen(lastButton, 'click', () => { if (zoom !== 1) setZoom(1); openPage(pages.length - 1) })
+
+  // Page number: click to type a page and press Enter.
+  listen(pageCount, 'click', () => {
+    if (pageCount.querySelector('input')) return
+    const input = make('input', 'fs-page-input', { type: 'number', min: '1', max: String(pages.length), 'aria-label': 'Go to page number', value: String(currentPage + 1) })
+    pageCount.replaceChildren(input)
+    input.focus()
+    input.select()
+    let finished = false
+    const done = (go) => {
+      if (finished) return
+      finished = true
+      const number = Math.floor(Number(input.value))
+      pageCount.replaceChildren()
+      updateCount()
+      if (go && number >= 1 && number <= pages.length) openPage(number - 1)
+    }
+    input.addEventListener('keydown', (event) => {
+      event.stopPropagation()
+      if (event.key === 'Enter') { event.preventDefault(); done(true) }
+      if (event.key === 'Escape') { event.preventDefault(); done(false) }
+    })
+    input.addEventListener('blur', () => { if (input.isConnected) done(false) })
+  })
+
+  // Sound needs a user gesture before browsers allow audio: prepare it on the first touch/click/key.
+  const unlockSound = () => { if (sound.unlock) sound.unlock() }
+  listen(root, 'pointerdown', unlockSound, true)
+  listen(root, 'keydown', unlockSound, true)
+  // Releasing a dragged page turns it: sound it right away.
+  listen(stage, 'pointerup', () => { if (flipState === 'user_fold') sound.play() })
+
+  // ---------- drawers: contents and my bookmarks ----------
+  let drawer = null
+  let drawerKind = ''
+  let drawerItems = []
+  const marksKey = 'fs-bookmarks:' + (data.id || data.title || 'publication')
+  const readMarks = () => {
+    try { const raw = storage && storage.getItem(marksKey); const list = raw ? JSON.parse(raw) : []; return Array.isArray(list) ? list.filter((n) => typeof n === 'number' && n >= 0 && n < pages.length) : [] } catch (error) { void error; return [] }
+  }
+  const writeMarks = (list) => { try { if (storage) storage.setItem(marksKey, JSON.stringify(list)) } catch (error) { void error } }
+  const closeDrawer = () => {
+    if (!drawer) return
+    drawer.remove()
+    drawer = null
+    drawerItems = []
+    tocButton.setAttribute('aria-expanded', 'false')
+    marksButton.setAttribute('aria-expanded', 'false')
+    drawerKind = ''
+  }
+  const markDrawer = () => {
+    const shown = visiblePages()
+    drawerItems.forEach((item) => item.button.classList.toggle('is-current', drawerKind === 'contents' && sections.length ? item.section === currentSection() : shown.indexOf(item.page) >= 0))
+  }
+  const pageLabel = (index) => 'Page ' + (index + 1)
+  const buildDrawer = (kind) => {
+    const panel = make('div', 'fs-drawer', { role: 'dialog', 'aria-label': kind === 'contents' ? 'Contents' : 'My bookmarks' })
+    const head = make('div', 'fs-drawer-head')
+    const title = make('strong')
+    title.innerHTML = svgIcon(kind === 'contents' ? 'toc' : 'bookmark')
+    title.append(kind === 'contents' ? 'Contents' : 'My bookmarks')
+    const close = make('button', 'fs-search-close', { type: 'button', 'aria-label': 'Close' })
+    close.textContent = '×'
+    close.addEventListener('click', closeDrawer)
+    head.append(title, close)
+    panel.append(head)
+    const list = make('ol', 'fs-drawer-list')
+    const go = (index) => { if (zoom !== 1) setZoom(1); openPage(index); if (stage.clientWidth < 700) closeDrawer() }
+    if (kind === 'contents') {
+      const filter = make('input', 'fs-drawer-filter', { type: 'search', placeholder: 'Filter…', 'aria-label': 'Filter contents' })
+      panel.append(filter)
+      const entries = sections.length ? sections.map((section, i) => ({ page: section.index, label: section.label, color: section.color, section: i })) : pages.map((page, index) => ({ page: index, label: page.name || pageLabel(index), section: -1 }))
+      drawerItems = entries.map((entry) => {
+        const li = make('li')
+        const button = make('button', 'fs-drawer-item', { type: 'button' })
+        const dot = make('span', 'fs-drawer-dot')
+        if (entry.color) dot.style.background = entry.color
+        const label = make('span', 'fs-drawer-label')
+        label.textContent = entry.label
+        const number = make('span', 'fs-drawer-page')
+        number.textContent = String(entry.page + 1)
+        button.append(dot, label, number)
+        button.addEventListener('click', () => go(entry.page))
+        li.append(button)
+        list.append(li)
+        return { button, page: entry.page, section: entry.section, li, text: entry.label.toLowerCase() }
+      })
+      filter.addEventListener('input', () => {
+        const term = filter.value.trim().toLowerCase()
+        drawerItems.forEach((item) => { item.li.hidden = !!term && item.text.indexOf(term) < 0 && String(item.page + 1) !== term })
+      })
+      filter.addEventListener('keydown', (event) => event.stopPropagation())
+    } else {
+      const add = make('button', 'fs-reader-btn fs-drawer-add', { type: 'button' })
+      const render = () => {
+        list.replaceChildren()
+        const marks = readMarks()
+        const shown = visiblePages()
+        const here = shown[0]
+        const marked = marks.indexOf(here) >= 0
+        add.textContent = marked ? 'Remove bookmark from page ' + (here + 1) : '+ Bookmark page ' + (here + 1)
+        drawerItems = marks.sort((x, y) => x - y).map((index) => {
+          const li = make('li')
+          const button = make('button', 'fs-drawer-item', { type: 'button' })
+          const thumb = make('span', 'fs-drawer-thumb')
+          const src = pages[index].thumb
+          if (src) thumb.append(make('img', '', { src, alt: '', loading: 'lazy' }))
+          const label = make('span', 'fs-drawer-label')
+          label.textContent = pageLabel(index)
+          const remove = make('span', 'fs-drawer-remove', { role: 'button', 'aria-label': 'Remove bookmark ' + (index + 1), title: 'Remove' })
+          remove.textContent = '×'
+          remove.addEventListener('click', (event) => { event.stopPropagation(); writeMarks(readMarks().filter((n) => n !== index)); render() })
+          button.append(thumb, label, remove)
+          button.addEventListener('click', () => go(index))
+          li.append(button)
+          list.append(li)
+          return { button, page: index, section: -1, li, text: '' }
+        })
+        if (!marks.length) {
+          const empty = make('li', 'fs-drawer-empty')
+          empty.textContent = 'No bookmarks yet. Bookmark pages you want to come back to; they are kept in this browser.'
+          list.append(empty)
+        }
+        markDrawer()
+      }
+      add.addEventListener('click', () => {
+        const here = visiblePages()[0]
+        const marks = readMarks()
+        writeMarks(marks.indexOf(here) >= 0 ? marks.filter((n) => n !== here) : marks.concat([here]))
+        render()
+      })
+      panel.append(add)
+      panel.renderMarks = render
+      render()
+    }
+    panel.append(list)
+    return panel
+  }
+  const openDrawer = (kind) => {
+    const same = drawerKind === kind
+    closeDrawer()
+    if (same) return
+    closeThumbs()
+    drawer = buildDrawer(kind)
+    drawerKind = kind
+    stage.append(drawer)
+    ;(kind === 'contents' ? tocButton : marksButton).setAttribute('aria-expanded', 'true')
+    markDrawer()
+    const current = drawer.querySelector('.is-current')
+    if (current && current.scrollIntoView) current.scrollIntoView({ block: 'nearest' })
+  }
+  listen(tocButton, 'click', () => openDrawer('contents'))
+  listen(marksButton, 'click', () => openDrawer('bookmarks'))
+
+  // ---------- share and email ----------
+  let popover = null
+  const closePopover = () => {
+    if (!popover) return
+    popover.remove()
+    popover = null
+    shareButton.setAttribute('aria-expanded', 'false')
+    autoButton.removeAttribute('data-menu')
+  }
+  const openPopover = (anchor, build) => {
+    closePopover()
+    popover = make('div', 'fs-popover', { role: 'dialog' })
+    build(popover)
+    root.append(popover)
+    const a = anchor.getBoundingClientRect()
+    const r = root.getBoundingClientRect()
+    const width = popover.offsetWidth || 240
+    const left = Math.max(8, Math.min(r.width - width - 8, a.left - r.left + a.width / 2 - width / 2))
+    popover.style.left = Math.round(left) + 'px'
+    popover.style.bottom = Math.round(r.bottom - a.top + 8) + 'px'
+  }
+  const shareText = () => (data.title || 'Catalogue')
+  const shareLinks = (url) => [
+    ['WhatsApp', 'https://wa.me/?text=' + encodeURIComponent(shareText() + '\n' + url)],
+    ['Facebook', 'https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(url)],
+    ['LinkedIn', 'https://www.linkedin.com/sharing/share-offsite/?url=' + encodeURIComponent(url)],
+    ['X', 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(shareText()) + '&url=' + encodeURIComponent(url)],
+    ['Email', 'mailto:?subject=' + encodeURIComponent(shareText()) + '&body=' + encodeURIComponent(url)],
+  ]
+  listen(shareButton, 'click', () => {
+    if (popover && shareButton.getAttribute('aria-expanded') === 'true') { closePopover(); return }
+    const url = shareUrl()
+    openPopover(shareButton, (box) => {
+      const title = make('strong')
+      title.textContent = 'Share this catalogue'
+      box.append(title)
+      if (!url) {
+        const note = make('p')
+        note.textContent = 'Sharing works once the catalogue is online.'
+        box.append(note)
+        return
+      }
+      const row = make('div', 'fs-share-copy')
+      const field = make('input', '', { type: 'text', readonly: '', value: url, 'aria-label': 'Link' })
+      const copy = make('button', 'fs-reader-btn', { type: 'button' })
+      copy.textContent = 'Copy link'
+      copy.addEventListener('click', () => {
+        const done = () => { copy.textContent = 'Copied ✓' }
+        try {
+          const fallback = () => {
+            field.select()
+            if (doc.execCommand) doc.execCommand('copy')
+            done()
+          }
+          if (win.navigator.clipboard) win.navigator.clipboard.writeText(url).then(done, fallback)
+          else fallback()
+        } catch (error) { void error }
+      })
+      row.append(field, copy)
+      box.append(row)
+      const grid = make('div', 'fs-share-grid')
+      shareLinks(url).forEach(([name, href]) => {
+        const link = make('a', 'fs-share-link', { href, target: '_blank', rel: 'noopener noreferrer' })
+        link.textContent = name
+        grid.append(link)
+      })
+      box.append(grid)
+    })
+    shareButton.setAttribute('aria-expanded', 'true')
+  })
+  listen(emailButton, 'click', () => {
+    const url = shareUrl()
+    const href = 'mailto:?subject=' + encodeURIComponent(shareText()) + '&body=' + encodeURIComponent((url ? url + '\n\n' : '') + 'Page ' + (visiblePages()[0] + 1))
+    const link = make('a', '', { href })
+    root.append(link)
+    link.click()
+    link.remove()
+  })
+
+  // ---------- auto flip ----------
+  const autoSettings = readerSettings.autoFlip || {}
+  let autoInterval = Math.max(1.5, Math.min(30, Number(autoSettings.interval) || 4))
+  let autoTimer = 0
+  const autoFlipping = () => !!autoTimer
+  const stopAuto = () => {
+    if (autoTimer) win.clearInterval(autoTimer)
+    autoTimer = 0
+    autoButton.setAttribute('aria-pressed', 'false')
+    setIcon(autoButton, 'auto', 'Auto flip')
+  }
+  const startAuto = () => {
+    stopAuto()
+    autoTimer = win.setInterval(() => {
+      if (destroyed || zoom !== 1 || selectMode || popupEl) return
+      const shown = visiblePages()
+      if (shown[shown.length - 1] >= pages.length - 1) {
+        if (autoSettings.loop === false) { stopAuto(); return }
+        openPage(0)
+        return
+      }
+      goPage(1)
+    }, autoInterval * 1000)
+    autoButton.setAttribute('aria-pressed', 'true')
+    setIcon(autoButton, 'autoStop', 'Stop auto flip')
+  }
+  listen(autoButton, 'click', () => { if (autoFlipping()) stopAuto(); else startAuto() })
+  listen(autoButton, 'contextmenu', (event) => {
+    event.preventDefault()
+    openPopover(autoButton, (box) => {
+      const title = make('strong')
+      title.textContent = 'Auto flip every'
+      box.append(title)
+      const grid = make('div', 'fs-share-grid')
+      ;[2, 3, 4, 6, 8, 12].forEach((seconds) => {
+        const option = make('button', 'fs-share-link' + (seconds === autoInterval ? ' is-current' : ''), { type: 'button' })
+        option.textContent = seconds + ' s'
+        option.addEventListener('click', () => { autoInterval = seconds; closePopover(); startAuto() })
+        grid.append(option)
+      })
+      box.append(grid)
+    })
+  })
+  if (autoSettings.startOnOpen && pages.length > 1) {
+    const delay = Math.max(0, Number(autoSettings.startDelay) || 0)
+    const timer = win.setTimeout(() => { if (!destroyed) startAuto() }, delay * 1000)
+    cleanups.push(() => win.clearTimeout(timer))
+  }
+  // Clicking outside a popover closes it.
+  listen(doc, 'pointerdown', (event) => {
+    if (popover && !popover.contains(event.target) && !shareButton.contains(event.target)) closePopover()
+  }, true)
   listen(fullscreenButton, 'click', () => {
     if (doc.fullscreenElement) {
       if (doc.exitFullscreen) doc.exitFullscreen().catch(() => undefined)
@@ -898,10 +1388,12 @@ export function mountPublication(root, data, options) {
       closePopup()
       return
     }
-    if (event.key === 'Escape' && (searchPanel || selectMode || thumbsPanel || zoom !== 1)) {
+    if (event.key === 'Escape' && (searchPanel || selectMode || thumbsPanel || drawer || popover || zoom !== 1)) {
       event.preventDefault()
       event.stopPropagation()
-      if (thumbsPanel) closeThumbs()
+      if (popover) closePopover()
+      else if (thumbsPanel) closeThumbs()
+      else if (drawer) closeDrawer()
       else if (searchPanel) closeSearch()
       else if (zoom !== 1) setZoom(1)
       else setSelectMode(false)
@@ -964,6 +1456,9 @@ export function mountPublication(root, data, options) {
       closePopup()
       closeSearch()
       closeThumbs()
+      closeDrawer()
+      closePopover()
+      stopAuto()
       sound.destroy()
       clock.destroy()
       controllers.forEach((controller) => controller.destroy())

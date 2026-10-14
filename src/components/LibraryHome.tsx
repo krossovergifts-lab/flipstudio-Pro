@@ -3,7 +3,8 @@ import { isTauri } from '@tauri-apps/api/core'
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
 import { readTextFile } from '@tauri-apps/plugin-fs'
 import { CATEGORIES, parseProjectFile, type Library, type LibraryBook, type LibraryIndex } from '../lib/library'
-import { createProject, PROJECT_VERSION } from '../lib/project'
+import { createAsset, createProject, PROJECT_VERSION, type ProjectAsset } from '../lib/project'
+import { fileToDataUrl } from '../lib/assets'
 import { importPdfPages, type PdfImportOptions } from '../lib/pdfImport'
 import { PdfImportDialog, type PdfBookInfo } from './PdfImportDialog'
 import { PublishDialog } from './PublishDialog'
@@ -114,8 +115,15 @@ export function LibraryHome({ library, index, location, onIndexChange, onOpen }:
     run(`Importing ${file.name}…`, async () => {
       const { pages } = await importPdfPages(file, options, (page, total) => setBusy(`Importing ${file.name} — page ${page} of ${total}`))
       setBusy('Saving to the library…')
+      let reader = info.reader
+      let assets: Record<string, ProjectAsset> = {}
+      if (info.allowDownload) {
+        const asset = createAsset({ name: file.name, dataUrl: await fileToDataUrl(file, file.name) })
+        assets = { [asset.id]: asset }
+        reader = { ...reader, downloadAssetId: asset.id, downloadName: file.name }
+      }
       const book = await library.createBook(
-        createProject({ version: PROJECT_VERSION, title: info.title, description: info.description, category: info.category, keywords: info.keywords, reader: info.reader, pages }),
+        createProject({ version: PROJECT_VERSION, title: info.title, description: info.description, category: info.category, keywords: info.keywords, reader, assets, pages }),
         currentFolderId,
       )
       refresh()

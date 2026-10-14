@@ -280,7 +280,7 @@ function SingleSiteSetup({ initial, suggestedName, onSaved, onCancel, fetchImpl,
         <span className="publish-step-no">3</span>
         <div>
           <strong>Create the website on Cloudflare (free account)</strong>
-          <span><em>Workers &amp; Pages</em> → <em>Create</em> → <em>Pages</em> → <em>Import an existing Git repository</em> → choose <code>{repo}</code> → Project name <code>{name}</code> (Copy button above) → Framework preset <em>None</em>, leave Build command empty, Build output directory <code>/</code> → <em>Save and Deploy</em>.</span>
+          <span><em>Workers &amp; Pages</em> → <em>Create application</em> → <em>Pages</em> tab (not Workers) → <em>Import an existing Git repository</em> → connect GitHub with <em>Only select repositories</em> → <code>{repo}</code> → <em>Begin setup</em> → Project name <code>{name}</code> (Copy above) → Framework preset <em>None</em>, Build command <code>exit 0</code>, Build output directory empty → <em>Save and Deploy</em>.</span>
         </div>
         <a className="publish-step-btn" href="https://dash.cloudflare.com/sign-up/pages" target="_blank" rel="noopener noreferrer">Open Cloudflare ↗</a>
       </div>
@@ -310,12 +310,22 @@ function ChooseSite({ onPick, onCancel, hasSites }: { onPick: (kind: 'setup-page
     <div className="publish-body">
       <p className="publish-intro">Where should this publication go online?</p>
       <button type="button" className="publish-choice" onClick={() => onPick('setup-single')}>
-        <strong>Its own brand-free website <em>Best for the main catalogue</em></strong>
-        <span>One catalogue at its own address, e.g. <code>promotionalgifts-catalogue-2027.pages.dev</code> — safe for resellers to share. Free on Cloudflare Pages.</span>
+        <span className="publish-choice-icon" aria-hidden="true">🌐</span>
+        <span className="publish-choice-text">
+          <strong>Its own brand-free website <em>Best for the main catalogue</em></strong>
+          <span>One catalogue at its own address — safe for resellers to share. Free on Cloudflare Pages.</span>
+          <code>promotionalgifts-catalogue-2027.pages.dev</code>
+        </span>
+        <span className="publish-choice-arrow" aria-hidden="true">›</span>
       </button>
       <button type="button" className="publish-choice" onClick={() => onPick('setup-pages')}>
-        <strong>Bookshelf on GitHub Pages</strong>
-        <span>Many publications on one site, each at <code>yourname.github.io/flipbooks/link-name/</code>. The address shows your GitHub name.</span>
+        <span className="publish-choice-icon" aria-hidden="true">📚</span>
+        <span className="publish-choice-text">
+          <strong>Bookshelf on GitHub Pages</strong>
+          <span>Many publications on one site. The address shows your GitHub name.</span>
+          <code>yourname.github.io/flipbooks/link-name/</code>
+        </span>
+        <span className="publish-choice-arrow" aria-hidden="true">›</span>
       </button>
       <div className="publish-foot">
         <span className="spacer" />

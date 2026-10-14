@@ -140,7 +140,6 @@ describe('publication library home', () => {
     expect([...runs].map((span) => span.textContent)).toEqual(['Leather gift sets', 'Order before 20 December'])
     expect((runs[0] as HTMLElement).style.left).toBe('6.7227%')
     // Search finds text on both pages and highlights the match.
-    fireEvent.click(within(pane).getByRole('button', { name: 'Search' }))
     fireEvent.input(within(pane).getByLabelText('Search text'), { target: { value: 'december' } })
     await waitFor(() => expect(within(pane).getByText('2 results')).toBeTruthy())
     expect(pane.querySelector('.fs-hit')!.textContent).toBe('Order before 20 December')

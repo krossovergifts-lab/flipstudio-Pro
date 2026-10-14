@@ -50,6 +50,7 @@ export interface PublicationPage {
   background: string | null
   overlays: PublicationOverlay[]
   thumb?: string
+  bookmark?: { label: string; color?: string; textColor?: string }
   text?: Array<{ s: string; x: number; y: number; w: number; h: number; a?: number; f?: string; eol?: boolean }>
 }
 
@@ -79,7 +80,21 @@ export interface PublicationData {
     thumbnails?: boolean
     logo?: string
     logoLink?: string
+    tabs?: boolean
+    tabEffect?: string
+    contents?: boolean
+    readerBookmarks?: boolean
+    share?: boolean
+    sideArrows?: boolean
+    showTitle?: boolean
+    autoFlipButton?: boolean
+    autoFlip?: { startOnOpen?: boolean; interval?: number; startDelay?: number; loop?: boolean }
+    downloadUrl?: string
+    downloadName?: string
+    centerSinglePages?: boolean
   }
+  id?: string
+  shareUrl?: string
 }
 
 export interface PublicationHandle {
@@ -102,6 +117,8 @@ export interface MountOptions {
   startPage?: number
   autoplay?: boolean
   forceSinglePage?: boolean
+  /** Show the animation play/stop/timeline bar (default true; exported books hide it). */
+  showTimeline?: boolean
   designStateWhenStopped?: boolean
   onPageChange?: (page: number) => void
   onTimeChange?: (time: number, state: ClockState) => void

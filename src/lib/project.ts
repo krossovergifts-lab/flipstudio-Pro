@@ -124,8 +124,18 @@ export interface PageDefinition {
   previewUrl?: string
   /** Small JPEG (about 240 px wide) for page lists and the reader's thumbnails. */
   thumbUrl?: string
+  /** Section bookmark: shown as a coloured tab on the book edge and in Contents. */
+  bookmark?: PageBookmark
   /** Text kept from the PDF (page units, top-left origin) for selection, copy and search. */
   text?: PageTextItem[]
+}
+
+export interface PageBookmark {
+  label: string
+  /** Tab colour (hex). */
+  color?: string
+  /** Tab text colour (hex). */
+  textColor?: string
 }
 
 /** One run of PDF text: string, box in page units, optional angle (deg) and generic family. */
@@ -171,6 +181,22 @@ export interface ReaderSettings {
   thumbnails?: boolean
   logoAssetId?: string
   logoLink?: string
+  /** Bookmark tabs on the book edge, and their hover effect. */
+  tabs?: boolean
+  tabEffect?: 'slide' | 'grow' | 'glow' | 'none'
+  /** Toolbar features. */
+  contents?: boolean
+  readerBookmarks?: boolean
+  share?: boolean
+  sideArrows?: boolean
+  showTitle?: boolean
+  autoFlipButton?: boolean
+  autoFlip?: { startOnOpen?: boolean; interval?: number; startDelay?: number; loop?: boolean }
+  /** A PDF readers can download (stored as a project asset). */
+  downloadAssetId?: string
+  downloadName?: string
+  /** Centre a lone cover / last page instead of leaving it on one side of the spread. */
+  centerSinglePages?: boolean
 }
 
 export interface ProjectState {
@@ -280,7 +306,7 @@ export function findMissingAssets(project: ProjectState): string[] {
 
 export function referencedAssetIds(project: Pick<ProjectState, 'pages' | 'fonts'> & { reader?: ReaderSettings }): Set<string> {
   const used = new Set<string>()
-  for (const id of [project.reader?.backgroundImageAssetId, project.reader?.logoAssetId, project.reader?.soundAssetId]) if (id) used.add(id)
+  for (const id of [project.reader?.backgroundImageAssetId, project.reader?.logoAssetId, project.reader?.soundAssetId, project.reader?.downloadAssetId]) if (id) used.add(id)
   for (const page of project.pages) {
     for (const overlay of page.overlays) {
       if (overlay.assetId) used.add(overlay.assetId)
@@ -417,6 +443,7 @@ export function createProject(input: ProjectInput = {}): ProjectState {
     pdfPageNumber: page.pdfPageNumber,
     previewUrl: page.previewUrl,
     ...(page.thumbUrl ? { thumbUrl: page.thumbUrl } : {}),
+    ...(page.bookmark && typeof page.bookmark.label === 'string' && page.bookmark.label.trim() ? { bookmark: { ...page.bookmark, label: page.bookmark.label.trim() } } : {}),
     ...(Array.isArray(page.text) && page.text.length ? { text: page.text.filter(validTextItem) } : {}),
     overlays: (page.overlays ?? []).map((overlay, overlayIndex) =>
       normalizeOverlay(overlay, `overlay-${pageIndex + 1}-${overlayIndex + 1}`),
@@ -652,9 +679,10 @@ export function usedFonts(project: ProjectState): FontDefinition[] {
 /** Reader settings as the runtime needs them: asset references become URLs. */
 function readerData(reader: ReaderSettings | undefined, assetUrl: (assetId: string) => string): PublicationData['reader'] {
   if (!reader) return undefined
-  const { backgroundImageAssetId, logoAssetId, soundAssetId, ...rest } = reader
+  const { backgroundImageAssetId, logoAssetId, soundAssetId, downloadAssetId, ...rest } = reader
   return {
     ...rest,
+    downloadUrl: downloadAssetId ? assetUrl(downloadAssetId) || undefined : undefined,
     backgroundImage: backgroundImageAssetId ? assetUrl(backgroundImageAssetId) || undefined : undefined,
     logo: logoAssetId ? assetUrl(logoAssetId) || undefined : undefined,
     soundUrl: soundAssetId ? assetUrl(soundAssetId) || undefined : undefined,
@@ -676,6 +704,7 @@ export function buildPublicationData(
   }
   const fonts = projectFonts(project)
   return {
+    id: project.id,
     title: project.title,
     reader: readerData(project.reader, (assetId) => url({ assetId })),
     animations: project.animations.map((animation) => ({ ...animation })),
@@ -686,6 +715,7 @@ export function buildPublicationData(
       height: page.height,
       background: pageUrl(page),
       thumb: thumbUrl(page) ?? undefined,
+      bookmark: page.bookmark,
       text: page.text,
       overlays: page.overlays.filter((overlay) => overlay.visible).map((overlay): PublicationOverlay => ({
         id: overlay.id,
@@ -824,7 +854,7 @@ ${inlineScript(pageFlipSource)}</script>
 ${inlineScript(RUNTIME_SCRIPT)}
   var data = JSON.parse(document.getElementById('fs-data').textContent);
   var PageFlip = window.St && window.St.PageFlip ? window.St.PageFlip : null;
-  window.flipstudioPublication = mountPublication(document.getElementById('publication'), data, { PageFlip: PageFlip });
+  window.flipstudioPublication = mountPublication(document.getElementById('publication'), data, { PageFlip: PageFlip, showTimeline: false });
 })();
     </script>
   </body>
@@ -907,6 +937,7 @@ const EXTENSIONS: Record<string, string> = {
   'image/gif': 'gif',
   'image/svg+xml': 'svg',
   'image/avif': 'avif',
+  'application/pdf': 'pdf',
   'font/woff2': 'woff2',
   'font/woff': 'woff',
   'font/ttf': 'ttf',
@@ -967,6 +998,7 @@ export async function buildPublicationFiles(
     (page) => pagePaths.get(page.id) ?? page.previewUrl ?? null,
     (page) => thumbPaths.get(page.id) ?? page.thumbUrl ?? null,
   )
+  if (options.meta?.url) data.shareUrl = options.meta.url
   files.unshift({ path: 'index.html', data: buildPublicationHtml(data, fontCss, options.meta) })
   return { files, project: embedded }
 }

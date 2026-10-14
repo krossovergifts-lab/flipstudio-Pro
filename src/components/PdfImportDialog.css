@@ -160,3 +160,8 @@
 }
 .pdf-wizard-foot button.primary { color: #fff; background: #2563eb; border-color: #2563eb; }
 .pdf-wizard-foot button:disabled { opacity: 0.55; cursor: progress; }
+
+.pdf-wizard-body .pdf-wizard-check { flex-direction: row; align-items: flex-start; gap: 8px; cursor: pointer; }
+.pdf-wizard-check input { margin-top: 2px; accent-color: #3b82f6; }
+.pdf-wizard-check span { display: flex; flex-direction: column; color: #e2e8f0; font-size: 13px; }
+.pdf-wizard-check small { color: #94a3b8; font-size: 11px; }

@@ -13,6 +13,8 @@ export interface PdfBookInfo {
   reader: ReaderSettings
   /** Replacing the PDF of an existing publication: keep its objects, animations and design. */
   keepObjects?: boolean
+  /** Readers may download this PDF from the flipbook. */
+  allowDownload?: boolean
 }
 
 export interface PdfImportDialogProps {
@@ -39,6 +41,7 @@ const fileTitle = (file: File) => file.name.replace(/\.[^/.]+$/, '').replace(/[_
 /** "Add new book" wizard shown before a PDF is imported: book info, text layer, image quality and reader look. */
 export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', replace, onCancel, onImport }: PdfImportDialogProps) {
   const [keepObjects, setKeepObjects] = useState(Boolean(replace))
+  const [allowDownload, setAllowDownload] = useState(false)
   const [inspection, setInspection] = useState<PdfInspection | null>(null)
   const [inspectError, setInspectError] = useState('')
   const [title, setTitle] = useState(initial?.title ?? fileTitle(file))
@@ -84,7 +87,7 @@ export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', re
     event.preventDefault()
     onImport(
       { text: text && inspection?.hasText !== false, quality },
-      { title: title.trim() || fileTitle(file), description: description.trim(), category, keywords: keywords.trim(), reader: keepObjects && initial?.reader ? initial.reader : { ...(initial?.reader ?? {}), background, toolbar, textTools: true }, keepObjects },
+      { title: title.trim() || fileTitle(file), description: description.trim(), category, keywords: keywords.trim(), reader: keepObjects && initial?.reader ? initial.reader : { ...(initial?.reader ?? {}), background, toolbar, textTools: true }, keepObjects, allowDownload },
     )
   }
 
@@ -149,6 +152,10 @@ export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', re
                 <input value={keywords} onChange={(event) => setKeywords(event.target.value)} placeholder="e.g. spring, catalogue, offers" />
               </label>
             </div>
+            <label className="pdf-wizard-check">
+              <input type="checkbox" checked={allowDownload} onChange={(event) => setAllowDownload(event.target.checked)} />
+              <span>Allow readers to download this PDF <small>{formatBytes(file.size)}{file.size > 25 * 1024 * 1024 ? ' — over 25 MB: online, use a smaller PDF (Design → Share & download)' : ''}</small></span>
+            </label>
           </section>
 
           <section>

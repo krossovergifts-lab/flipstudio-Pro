@@ -43,6 +43,7 @@ import { PreviewPane } from './components/PreviewPane'
 import { Timeline } from './components/Timeline'
 import { NumberField } from './components/NumberField'
 import { StyleInspector } from './components/StyleInspector'
+import { ColorField } from './components/ColorField'
 import { FONT_FILE_ACCEPT, fontFaceCss, fontMimeType } from './lib/fonts'
 import { fileToDataUrl } from './lib/assets'
 import { importPdfPages, type PdfImportOptions } from './lib/pdfImport'
@@ -919,7 +920,7 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
   )
 
   const [pdfFile, setPdfFile] = useState<File | null>(null)
-  const [designOpen, setDesignOpen] = useState(false)
+  const [designOpen, setDesignOpen] = useState<false | 'theme' | 'bookmarks'>(false)
   const handleImportPdf = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0]
@@ -958,6 +959,13 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
           : imported
         const dropped = keep ? oldPages.slice(imported.length).reduce((total, page) => total + page.overlays.length, 0) : 0
         const keptIds = new Set(pages.flatMap((page) => page.overlays.map((overlay) => overlay.id)))
+        let assets = committedProject.assets
+        let reader = info.reader
+        if (info.allowDownload) {
+          const merged = mergeAssets(assets, [createAsset({ name: file.name, dataUrl: await fileToDataUrl(file, file.name) })])
+          assets = merged.assets
+          reader = { ...reader, downloadAssetId: merged.ids[0], downloadName: file.name }
+        }
         const nextProject = createProject({
           version: PROJECT_VERSION,
           id: libraryMode ? committedProject.id : undefined,
@@ -965,9 +973,9 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
           description: info.description,
           category: info.category,
           keywords: info.keywords,
-          reader: info.reader,
+          reader,
           fonts: committedProject.fonts,
-          assets: committedProject.assets,
+          assets,
           animations: keep ? committedProject.animations.filter((animation) => keptIds.has(animation.targetId)) : [],
           pages,
         })
@@ -1388,10 +1396,12 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
         <ThemeDialog
           project={committedProject}
           onCancel={() => setDesignOpen(false)}
-          onApply={(reader, assets) => {
+          initialTab={designOpen === 'bookmarks' ? 'bookmarks' : 'theme'}
+          onApply={(reader, assets, bookmarks) => {
             setDesignOpen(false)
             const merged = mergeAssets(committedProject.assets, assets)
-            commitProject({ ...committedProject, reader, assets: merged.assets })
+            const pages = committedProject.pages.map((page) => (page.id in bookmarks ? { ...page, bookmark: bookmarks[page.id] } : page))
+            commitProject({ ...committedProject, reader, assets: merged.assets, pages })
             report('Flipbook design updated')
           }}
         />
@@ -1444,7 +1454,7 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
         </div>
         <div className="toolbar-spacer" />
         <div className="toolbar-group toolbar-publish" aria-label="Publish">
-          <button type="button" aria-label="Flipbook design" title="Flipbook design: theme, background, page turn, sound" onClick={() => setDesignOpen(true)}>🎨<span className="toolbar-btn-label"> Design</span></button>
+          <button type="button" aria-label="Flipbook design" title="Flipbook design: theme, background, page turn, sound" onClick={() => setDesignOpen('theme')}>🎨<span className="toolbar-btn-label"> Design</span></button>
           <button type="button" aria-label="Export HTML" title="Export one self-contained HTML file" onClick={() => void exportHtml()}>⇩ HTML</button>
           <button type="button" aria-label="Export ZIP" title="Export a ZIP folder for web hosting" onClick={() => void exportZip()}>⇩ ZIP</button>
           {onPublish && (
@@ -1842,6 +1852,34 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
                   <p className="muted">
                     {Math.round(selectedPage?.width ?? 0)} × {Math.round(selectedPage?.height ?? 0)} · {selectedPage?.overlays.length ?? 0} objects
                   </p>
+                  {selectedPage && (
+                    <section className="inspector-section page-bookmark">
+                      <h3>Bookmark tab</h3>
+                      <p className="muted small">A coloured tab on the book edge and a Contents entry that jumps to this page.</p>
+                      <label>
+                        Tab text
+                        <input
+                          value={selectedPage.bookmark?.label ?? ''}
+                          placeholder="e.g. Drinkware"
+                          onChange={(event) => {
+                            const label = event.target.value
+                            const page = selectedPage
+                            commitProject(
+                              { ...committedProject, pages: committedProject.pages.map((candidate) => (candidate.id === page.id ? { ...candidate, bookmark: label ? { color: '#475569', textColor: '#ffffff', ...candidate.bookmark, label } : undefined } : candidate)) },
+                              `bookmark-${page.id}`,
+                            )
+                          }}
+                        />
+                      </label>
+                      {selectedPage.bookmark && (
+                        <div className="field-grid">
+                          <ColorField label="Tab colour" value={selectedPage.bookmark.color ?? '#475569'} allowAlpha={false} onChange={(color, key) => { const page = selectedPage; commitProject({ ...committedProject, pages: committedProject.pages.map((candidate) => (candidate.id === page.id && candidate.bookmark ? { ...candidate, bookmark: { ...candidate.bookmark, color } } : candidate)) }, key) }} />
+                          <ColorField label="Text colour" value={selectedPage.bookmark.textColor ?? '#ffffff'} allowAlpha={false} onChange={(textColor, key) => { const page = selectedPage; commitProject({ ...committedProject, pages: committedProject.pages.map((candidate) => (candidate.id === page.id && candidate.bookmark ? { ...candidate, bookmark: { ...candidate.bookmark, textColor } } : candidate)) }, key) }} />
+                        </div>
+                      )}
+                      <button type="button" className="link-button" onClick={() => setDesignOpen('bookmarks')}>Manage all bookmarks and tab style…</button>
+                    </section>
+                  )}
                   <p>No object selected. Click an object on the page, or add one from the toolbar.</p>
                   <p className="muted small">Shortcuts: Delete removes, Ctrl+D duplicates, arrow keys nudge (Shift ×10), Space plays the timeline, Esc deselects. Hold Alt while dragging to turn off snapping.</p>
                 </div>
