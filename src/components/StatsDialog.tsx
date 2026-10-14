@@ -3,6 +3,7 @@ import type { Library, LibraryBook } from '../lib/library'
 import { loadSites, normalizeSiteUrl, publishBook, upsertSite, type PublishSettings } from '../lib/publish'
 import { newStatsKey, sha256Hex, STATS_PATH, summarize, type StatRow, type StatsSummary } from '../lib/stats'
 import { openExternal } from '../lib/external'
+import { CloudflareApi, loadCloudflare } from '../lib/cloudflare'
 import { errorMessage } from '../lib/errors'
 import { saveExport } from '../lib/exporters'
 import { Icon } from './Icon'
@@ -19,6 +20,8 @@ interface StatsDialogProps {
   apiBase?: string
   /** The website's statistics endpoint (tests). */
   statsFetch?: FetchLike
+  cloudflareFetch?: FetchLike
+  cloudflareBase?: string
 }
 
 type Load =
@@ -117,7 +120,7 @@ function Ranked({ title, items, label, empty, limit = 8 }: { title: string; item
 }
 
 /** Statistics for one published catalogue: visits, pages read, searches, clicks, countries, devices. */
-export function StatsDialog({ library, book, onClose, fetchImpl, apiBase, statsFetch }: StatsDialogProps) {
+export function StatsDialog({ library, book, onClose, fetchImpl, apiBase, statsFetch, cloudflareFetch, cloudflareBase }: StatsDialogProps) {
   const doFetch: FetchLike = statsFetch ?? ((input, init) => fetch(input, init))
   const [site, setSite] = useState<PublishSettings | null>(() => loadSites().find((candidate) => candidate.id === (book.published?.siteId ?? 'site-main')) ?? null)
   const [days, setDays] = useState(30)
@@ -164,15 +167,31 @@ export function StatsDialog({ library, book, onClose, fetchImpl, apiBase, statsF
     if (!site) return
     const key = newStatsKey()
     const next = upsertSite({ ...site, stats: { key, keyHash: await sha256Hex(key) } })
+    if (next.host === 'cloudflare') {
+      // Direct-upload websites: the app creates the database, connects it and updates the site itself.
+      const connection = loadCloudflare()
+      if (!connection) { setLoad({ state: 'error', message: 'Cloudflare is not connected on this computer. Open Publish → Website → Settings and connect it.' }); return }
+      setBusy('Creating the statistics database…')
+      try {
+        await new CloudflareApi(connection, cloudflareFetch, cloudflareBase).ensureStatsDatabase(next.cfProject!)
+      } catch (err) {
+        setBusy('')
+        setLoad({ state: 'error', message: errorMessage(err, 'Could not create the statistics database.') })
+        return
+      }
+      setSite(next)
+      await updateOnline(next)
+      return
+    }
     setSite(next)
   }
 
-  const updateOnline = async () => {
-    if (!site) return
+  const updateOnline = async (target: PublishSettings | null = site) => {
+    if (!target) return
     setBusy('Updating the website…')
     try {
       const project = await library.openBook(book.id)
-      await publishBook(site, project, { slug: pub, fetchImpl, apiBase, onProgress: (message) => setBusy(message) })
+      await publishBook(target, project, { slug: pub, fetchImpl, apiBase, cloudflareFetch, cloudflareBase, onProgress: (message) => setBusy(message) })
       setBusy('')
       setUploaded(true)
       setLoad({ state: 'not-online' })
@@ -225,18 +244,29 @@ export function StatsDialog({ library, book, onClose, fetchImpl, apiBase, statsF
               <h3>See who reads this catalogue — without Google Analytics</h3>
               <p>Turn on statistics to count visits, the pages people read, what they search for, which products and links they click, and their country and device. No cookies, no personal data; the numbers are stored in your own free Cloudflare database.</p>
               {site && !/github\.io/i.test(site.siteUrl) ? null : <p className="stats-warn">Statistics need the website to be on Cloudflare Pages (the brand-free website). GitHub Pages cannot run the collector.</p>}
-              <button type="button" className="primary" onClick={() => void turnOn()} disabled={!site}>Turn on statistics for this website</button>
+              <button type="button" className="primary" onClick={() => void turnOn()} disabled={!site || Boolean(busy)}>{busy || 'Turn on statistics for this website'}</button>
             </div>
           )}
 
-          {book.published && (load.state === 'not-online' || load.state === 'no-database') && (
+          {book.published && site?.host === 'cloudflare' && (load.state === 'not-online' || load.state === 'no-database') && (
+            <div className="stats-setup">
+              <h3>{uploaded ? 'Statistics are on' : 'Almost ready'}</h3>
+              <p>{uploaded ? 'Cloudflare is updating your website (about a minute). Then open the catalogue once and click Check again to see your own visit.' : 'The website does not have the statistics collector yet.'}</p>
+              <div className="stats-actions">
+                <button type="button" className="primary" onClick={() => void refresh()}>Check again</button>
+                {!uploaded && <button type="button" onClick={() => void updateOnline(site)} disabled={Boolean(busy)}>{busy || 'Update online version'}</button>}
+              </div>
+            </div>
+          )}
+
+          {book.published && site?.host !== 'cloudflare' && (load.state === 'not-online' || load.state === 'no-database') && (
             <div className="stats-setup">
               <h3>{load.state === 'no-database' ? 'One step left: connect the database' : 'Finish setting up statistics'}</h3>
               <ol className="stats-steps">
                 <li className={load.state === 'no-database' || uploaded ? 'is-done' : ''}>
                   <strong>Upload the collector to the website.</strong>
                   <span>{uploaded ? 'Uploaded — the website updates in about a minute.' : 'Adds two small files to the site. Takes about a minute to go live.'}</span>
-                  <button type="button" onClick={() => void updateOnline()} disabled={Boolean(busy)}>{busy || 'Update online version'}</button>
+                  <button type="button" onClick={() => void updateOnline(site)} disabled={Boolean(busy)}>{busy || 'Update online version'}</button>
                 </li>
                 <li>
                   <strong>Create a free database in Cloudflare.</strong>
@@ -258,7 +288,7 @@ export function StatsDialog({ library, book, onClose, fetchImpl, apiBase, statsF
               <p className="stats-warn" role="alert">{load.message}</p>
               <div className="stats-actions">
                 <button type="button" onClick={() => void refresh()}>Try again</button>
-                <button type="button" onClick={() => void updateOnline()} disabled={Boolean(busy)}>{busy || 'Update online version'}</button>
+                <button type="button" onClick={() => void updateOnline(site)} disabled={Boolean(busy)}>{busy || 'Update online version'}</button>
               </div>
             </div>
           )}

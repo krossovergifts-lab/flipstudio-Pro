@@ -26,7 +26,7 @@ Built with React + TypeScript + Vite (editor), Tauri 2 (Windows shell), PDF.js a
 - **Phones**: one compact toolbar with a More sheet, pinch to zoom, swipe to turn.
 - **App theme**: light, dark or match Windows (library sidebar or the sun/moon button in the editor).
 - **Replace PDF**: import a new version of the catalogue PDF and keep all objects, animations and the design.
-- **Publish online**: several websites — a brand-free website for one catalogue (e.g. `promotionalgifts-catalogue-2027.pages.dev`, Cloudflare Pages) or a bookshelf of publications (GitHub Pages) — with WhatsApp/social previews. See [HOSTING.md](HOSTING.md).
+- **Publish online**: connect Cloudflare once, then each brand-free catalogue website is created and uploaded in one click (Cloudflare Pages direct upload, no GitHub repository); also several websites — a brand-free website for one catalogue (e.g. `promotionalgifts-catalogue-2027.pages.dev`, Cloudflare Pages) or a bookshelf of publications (GitHub Pages) — with WhatsApp/social previews. See [HOSTING.md](HOSTING.md).
 - **Export**: a self-contained HTML file, or a ZIP folder for web hosting. Fonts are embedded and everything works offline.
 
 ## Develop

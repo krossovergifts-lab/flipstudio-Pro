@@ -189,6 +189,17 @@ Verified in this (Linux) workspace:
 ### Third-party licences
 `THIRD_PARTY_NOTICES.md` contains the MIT licence of StPageFlip and the OFL licence text of every bundled font. Exported ZIP READMEs list the fonts they embed.
 
+## Ninth pass (2026-10-14): v1.7 — one-step Cloudflare websites
+
+- Cloudflare Pages direct upload (same protocol as `wrangler pages deploy`): API token connected once
+  (accounts lookup + Pages access check), project created by name, BLAKE3 content hashes, check-missing
+  so unchanged files are never re-sent, upsert, multipart deployment; statistics as an advanced-mode
+  `_worker.js` and the D1 database created and bound by the app. Unpublish deploys a "not available" page.
+- Desktop requests go through tauri-plugin-http 2.8.2 (crate and npm on the same version), scoped to
+  https://api.cloudflare.com/* only.
+- Tested against an in-memory Cloudflare API (unit cloudflare.test, e2e9 11/11); BLAKE3 checked with
+  official test vectors. Not yet run against the real Cloudflare API from this environment.
+
 ## Eighth pass (2026-10-14): v1.6 — editions, product sheet, statistics, embed, ad tags, page previews
 
 - New edition (library **Edition**): imports next year's PDF into a copy that keeps design/SEO/

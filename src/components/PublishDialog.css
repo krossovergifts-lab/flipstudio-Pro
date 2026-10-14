@@ -116,3 +116,6 @@
 .publish-name .publish-slug-row input { font-family: ui-monospace, Consolas, monospace; }
 .publish-check { display: flex; align-items: flex-start; gap: 8px; color: var(--text-2); font-size: 12.5px; cursor: pointer; }
 .publish-check input { margin-top: 2px; }
+.publish-token-row { display: flex; gap: 8px; }
+.publish-token-row input { flex: 1 1 auto; min-width: 0; }
+.publish-step-fields .publish-token-row input { width: auto; }

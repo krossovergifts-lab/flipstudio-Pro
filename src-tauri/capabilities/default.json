@@ -9,6 +9,14 @@
     "core:default",
     "dialog:default",
     {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://api.cloudflare.com/*"
+        }
+      ]
+    },
+    {
       "identifier": "opener:allow-open-url",
       "allow": [
         {

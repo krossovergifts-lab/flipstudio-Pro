@@ -114,3 +114,29 @@ export function summarize(rows: StatRow[], days: number, today = new Date()): St
   }
   return { days: series, totals, top }
 }
+
+const asScope = (moduleCode: string) =>
+  `(function () {\n  const exports = {};\n${moduleCode.replace(/export const (\w+)/g, 'const $1 = exports.$1').replace(/export async function (\w+)/g, 'exports.$1 = async function $1')}\n  return exports;\n})()`
+
+/**
+ * The same collector and reader as one Cloudflare Pages "advanced mode" worker
+ * (_worker.js), used by direct uploads; every other request is served from the site files.
+ */
+export function statsWorker(keyHash: string): string {
+  return `// FlipStudio Pro website worker (generated, do not edit).
+const collect = ${asScope(COLLECT_FUNCTION)};
+const read = ${asScope(statsFunction(keyHash))};
+export default {
+  async fetch(request, env) {
+    const path = new URL(request.url).pathname;
+    const api = path === "/${COLLECT_PATH}" ? collect : path === "/${STATS_PATH}" ? read : null;
+    if (api) {
+      const handler = request.method === "OPTIONS" ? api.onRequestOptions : request.method === "POST" ? api.onRequestPost : request.method === "GET" ? api.onRequestGet : null;
+      if (!handler) return new Response("Method not allowed", { status: 405 });
+      return handler({ request, env });
+    }
+    return env.ASSETS.fetch(request);
+  },
+};
+`
+}

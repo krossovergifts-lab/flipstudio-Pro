@@ -5,6 +5,7 @@
 //! - `dialog`: native Open / Save As / Export file pickers
 //! - `fs`: reading and writing the files chosen in those pickers
 //! - `opener`: opening web links (published flipbooks, object links) in the default browser
+//! - `http`: talking to the Cloudflare API (direct publishing), which browsers would block (CORS)
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -12,6 +13,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_http::init())
         .run(tauri::generate_context!())
         .expect("error while running FlipStudio Pro");
 }

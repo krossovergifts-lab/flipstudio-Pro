@@ -1,5 +1,6 @@
 import { Icon } from './Icon'
 import { EmbedDialog } from './EmbedDialog'
+import { CloudflareApi, connectCloudflare, loadCloudflare, pagesName, saveCloudflare, TOKEN_URL, type CloudflareConnection } from '../lib/cloudflare'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Library } from '../lib/library'
 import type { ProjectState } from '../lib/project'
@@ -40,9 +41,12 @@ export interface PublishDialogProps {
   /** Test hook: replaces window.fetch for GitHub requests. */
   fetchImpl?: (input: string, init?: RequestInit) => Promise<Response>
   apiBase?: string
+  /** Test hook: Cloudflare API requests. */
+  cloudflareFetch?: (input: string, init?: RequestInit) => Promise<Response>
+  cloudflareBase?: string
 }
 
-type View = 'choose' | 'setup-pages' | 'setup-single' | 'setup-advanced' | 'publish' | 'working' | 'done' | 'unpublish'
+type View = 'choose' | 'setup-pages' | 'setup-single' | 'setup-cloudflare' | 'setup-advanced' | 'publish' | 'working' | 'done' | 'unpublish'
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -307,15 +311,124 @@ function SingleSiteSetup({ initial, suggestedName, onSaved, onCancel, fetchImpl,
   )
 }
 
-function ChooseSite({ onPick, onCancel, hasSites }: { onPick: (kind: 'setup-pages' | 'setup-single') => void; onCancel: () => void; hasSites: boolean }) {
+/**
+ * One-step brand-free website: Cloudflare is connected once with an API token,
+ * then each new website is just a name (the app creates it and uploads directly).
+ */
+function CloudflareSetup({ initial, suggestedName, onSaved, onCancel, onManual, cloudflareFetch, cloudflareBase }: { initial: Partial<PublishSettings> | null; suggestedName: string; onSaved: (settings: PublishSettings) => void; onCancel: () => void; onManual: () => void; cloudflareFetch?: PublishDialogProps['fetchImpl']; cloudflareBase?: string }) {
+  const [connection, setConnection] = useState<CloudflareConnection | null>(() => loadCloudflare())
+  const [token, setToken] = useState('')
+  const [name, setName] = useState(() => initial?.cfProject ?? pagesName(suggestedName))
+  const [address, setAddress] = useState(initial?.siteUrl ?? '')
+  const [busy, setBusy] = useState('')
+  const [problem, setProblem] = useState('')
+  const editing = Boolean(initial?.cfProject)
+
+  const connect = async () => {
+    setProblem('')
+    setBusy('Checking the token…')
+    try {
+      const next = await connectCloudflare(token, cloudflareFetch, cloudflareBase)
+      saveCloudflare(next)
+      setConnection(next)
+      setToken('')
+    } catch (err) {
+      setProblem(errorMessage(err, 'Could not connect to Cloudflare.'))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const create = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!connection) return
+    setProblem('')
+    try {
+      if (editing) {
+        const url = normalizeSiteUrl(address)
+        if (!url) throw new Error('Enter the website address, e.g. https://giftscatalogue.com')
+        onSaved({ ...EMPTY_SETTINGS, ...initial, siteUrl: url, label: url.replace(/^https?:\/\//, ''), host: 'cloudflare', layout: 'single' } as PublishSettings)
+        return
+      }
+      const project = pagesName(name)
+      if (!project) throw new Error('Type a website name (letters, numbers and dashes).')
+      setBusy('Creating the website on Cloudflare…')
+      const created = await new CloudflareApi(connection, cloudflareFetch, cloudflareBase).createProject(project)
+      const url = `https://${created.subdomain || `${created.name}.pages.dev`}`
+      onSaved({ ...EMPTY_SETTINGS, siteUrl: url, siteTitle: suggestedName, label: url.replace(/^https:\/\//, ''), layout: 'single', host: 'cloudflare', cfProject: created.name })
+    } catch (err) {
+      setProblem(errorMessage(err, 'Could not create the website.'))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <form className="publish-setup" onSubmit={(event) => void create(event)}>
+      {!connection ? (
+        <>
+          <p className="publish-intro">Connect Cloudflare once. After that, every new catalogue website is one click — no GitHub repository, no keys to edit, nothing to set up on Cloudflare.</p>
+          <div className="publish-step">
+            <span className="publish-step-no">1</span>
+            <div>
+              <strong>Create an API token (one time)</strong>
+              <span><em>Create Token</em> → <em>Create Custom Token</em> → name <code>FlipStudio Pro</code> → Permissions: <em>Account · Cloudflare Pages · Edit</em> and <em>Account · D1 · Edit</em> → <em>Continue to summary</em> → <em>Create Token</em> → <em>Copy</em>.</span>
+            </div>
+            <a className="publish-step-btn" href={TOKEN_URL} target="_blank" rel="noopener noreferrer">Open Cloudflare ↗</a>
+          </div>
+          <div className="publish-step">
+            <span className="publish-step-no">2</span>
+            <div className="publish-step-fields">
+              <strong>Paste it here</strong>
+              <div className="publish-token-row">
+                <input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Paste the token" aria-label="Cloudflare API token" autoComplete="off" spellCheck={false} />
+                <button type="button" className="primary" onClick={() => void connect()} disabled={token.trim().length < 20 || Boolean(busy)}>{busy || 'Connect'}</button>
+              </div>
+            </div>
+          </div>
+          <p className="publish-note">The token stays on this computer. You can delete it in Cloudflare at any time.</p>
+        </>
+      ) : (
+        <>
+          <p className="publish-ok" role="status">Cloudflare connected{connection.accountName ? ` — ${connection.accountName}` : ''}. <button type="button" className="link-button" onClick={() => { saveCloudflare(null); setConnection(null) }}>Disconnect</button></p>
+          {editing ? (
+            <label className="publish-name">
+              Website address (change it after adding your own domain in Cloudflare → your project → Custom domains)
+              <input value={address} onChange={(event) => setAddress(event.target.value)} aria-label="Website address" spellCheck={false} />
+            </label>
+          ) : (
+            <label className="publish-name">
+              Website name (becomes the link)
+              <div className="publish-slug-row">
+                <span className="publish-prefix">https://</span>
+                <input value={name} onChange={(event) => setName(pagesName(event.target.value) || event.target.value.toLowerCase())} aria-label="Website name" spellCheck={false} />
+                <span className="publish-prefix">.pages.dev</span>
+              </div>
+            </label>
+          )}
+          {!editing && <p className="publish-note">Brand-free and free on Cloudflare Pages: unlimited visitors, commercial use allowed. Cloudflare may add a few letters if the name is already taken by someone else.</p>}
+        </>
+      )}
+      {problem && <p className="publish-error" role="alert">{problem}</p>}
+      <div className="publish-foot">
+        {!editing && <button type="button" className="link-button" onClick={onManual}>Use a GitHub repository instead</button>}
+        <span className="spacer" />
+        <button type="button" onClick={onCancel}>Back</button>
+        {connection && <button type="submit" className="primary" disabled={Boolean(busy) || (!editing && !pagesName(name))}>{busy || (editing ? 'Save' : 'Create website')}</button>}
+      </div>
+    </form>
+  )
+}
+
+function ChooseSite({ onPick, onCancel, hasSites }: { onPick: (kind: 'setup-pages' | 'setup-cloudflare') => void; onCancel: () => void; hasSites: boolean }) {
   return (
     <div className="publish-body">
       <p className="publish-intro">Where should this publication go online?</p>
-      <button type="button" className="publish-choice" onClick={() => onPick('setup-single')}>
+      <button type="button" className="publish-choice" onClick={() => onPick('setup-cloudflare')}>
         <span className="publish-choice-icon" aria-hidden="true"><Icon name="globe" size={20} /></span>
         <span className="publish-choice-text">
           <strong>Its own brand-free website <em>Best for the main catalogue</em></strong>
-          <span>One catalogue at its own address — safe for resellers to share. Free on Cloudflare Pages.</span>
+          <span>One catalogue at its own address — safe for resellers to share. Free on Cloudflare Pages; created in one click.</span>
           <code>promotionalgifts-catalogue-2027.pages.dev</code>
         </span>
         <span className="publish-choice-arrow" aria-hidden="true">›</span>
@@ -338,7 +451,7 @@ function ChooseSite({ onPick, onCancel, hasSites }: { onPick: (kind: 'setup-page
 }
 
 /** Publish a publication as its own online flipbook link; update or unpublish it later. */
-export function PublishDialog({ library, bookId, project: givenProject, onClose, onChange, fetchImpl, apiBase }: PublishDialogProps) {
+export function PublishDialog({ library, bookId, project: givenProject, onClose, onChange, fetchImpl, apiBase, cloudflareFetch, cloudflareBase }: PublishDialogProps) {
   const book = library.index.books.find((candidate) => candidate.id === bookId)
   // A new edition that is not online yet starts on its source's website and link.
   const source = book?.editionOf && !book.published ? library.index.books.find((candidate) => candidate.id === book.editionOf && candidate.published) : undefined
@@ -419,12 +532,14 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
         slug,
         fetchImpl,
         apiBase,
+        cloudflareFetch,
+        cloudflareBase,
         onProgress: (message, done = 0, total = 0) => setProgress({ message, done, total }),
       })
       // Changing the link name (or website) moves the publication: remove the old copy afterwards.
       if (published && publishedSite && (publishedSite.id !== settings.id || (!single && published.slug !== slug))) {
         setProgress({ message: 'Removing the old link…', done: 0, total: 0 })
-        await unpublishBook(publishedSite, published.slug, { fetchImpl, apiBase }).catch(() => undefined)
+        await unpublishBook(publishedSite, published.slug, { fetchImpl, apiBase, cloudflareFetch, cloudflareBase }).catch(() => undefined)
       }
       if (replacing) await library.setPublished(replacing.id, null)
       await library.setPublished(bookId, { slug: single ? '' : slug, url: outcome.url, publishedAt: new Date().toISOString(), siteId: settings.id })
@@ -444,7 +559,7 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
     setView('working')
     setError('')
     try {
-      await unpublishBook(site, published.slug, { fetchImpl, apiBase, onProgress: (message) => setProgress({ message, done: 0, total: 0 }) })
+      await unpublishBook(site, published.slug, { fetchImpl, apiBase, cloudflareFetch, cloudflareBase, onProgress: (message) => setProgress({ message, done: 0, total: 0 }) })
       await library.setPublished(bookId, null)
       onChange()
       onClose()
@@ -492,6 +607,17 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
             onSaved={(next) => saveSite({ ...next, id: editing?.id })}
           />
         )}
+        {view === 'setup-cloudflare' && (
+          <CloudflareSetup
+            initial={editing}
+            suggestedName={book.title}
+            cloudflareFetch={cloudflareFetch}
+            cloudflareBase={cloudflareBase}
+            onCancel={() => (editing || sites.length ? setView('publish') : setView('choose'))}
+            onManual={() => setView('setup-single')}
+            onSaved={(next) => saveSite({ ...next, id: editing?.id })}
+          />
+        )}
         {view === 'setup-advanced' && editing && (
           <AdvancedSetup initial={editing} fetchImpl={fetchImpl} apiBase={apiBase} onCancel={() => setView('publish')} onSaved={(next) => saveSite({ ...next, id: editing.id })} />
         )}
@@ -522,7 +648,7 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
                   {sites.map((site) => <option key={site.id} value={site.id}>{siteLabel(site)}{site.layout === 'single' ? ' — own website' : ' — bookshelf'}</option>)}
                   <option value="__add">+ Add a website…</option>
                 </select>
-                <button type="button" onClick={() => { setEditing(settings); setView(settings.layout === 'single' ? 'setup-single' : 'setup-advanced') }} disabled={working}>Settings</button>
+                <button type="button" onClick={() => { setEditing(settings); setView(settings.host === 'cloudflare' ? 'setup-cloudflare' : settings.layout === 'single' ? 'setup-single' : 'setup-advanced') }} disabled={working}>Settings</button>
               </div>
             </label>
             {single ? (

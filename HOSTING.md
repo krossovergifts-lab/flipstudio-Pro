@@ -14,33 +14,27 @@ live, usually within a minute. You do not need a server or to run any commands.
 
 You set this up **once**, inside the app. It takes about 2 minutes.
 
-## Brand-free website for one catalogue (recommended for the 2027 catalogue)
+## Brand-free website for one catalogue (recommended)
 
-For a catalogue resellers will forward, give it its **own website** with a neutral
-address such as `https://promotionalgifts-catalogue-2027.pages.dev`. It is free on
-Cloudflare Pages, allows commercial use and has no traffic limit. The catalogue opens
-directly at that address (no folder, no GitHub or company name in the link).
+Each catalogue can have its **own website** with a neutral address such as
+`https://promotionalgifts-catalogue-2027.pages.dev` — free on Cloudflare Pages, commercial use
+allowed, no traffic limit. The app creates the website and uploads to it directly: **no GitHub
+repository and no Cloudflare setup per catalogue.**
 
-In the app: **🌐 Publish → Website → + Add a website… → Its own brand-free website**.
-The window walks you through four steps:
+**Once (2 minutes): connect Cloudflare**
+1. **🌐 Publish → Its own brand-free website → Open Cloudflare ↗** (API Tokens page).
+2. **Create Token → Create Custom Token** → name `FlipStudio Pro` → Permissions:
+   **Account · Cloudflare Pages · Edit** and **Account · D1 · Edit** → **Continue to summary →
+   Create Token → Copy**.
+3. Paste it in the app → **Connect**. The token is kept on this computer only.
 
-1. **Website name** – type the name you want in the link, e.g.
-   `promotionalgifts-catalogue-2027` (lowercase, dashes). Click **Copy**.
-2. **Create repository ↗** – a new GitHub repository for this catalogue (Private is fine).
-3. **Open my keys ↗** – edit your *FlipStudio Pro publishing* key → Repository access →
-   add the new repository → **Update** (no new key needed).
-4. **Open Cloudflare ↗** – create a free account, then:
-   1. **Workers & Pages → Create application → Pages** tab (not *Workers*) →
-      **Import an existing Git repository**.
-   2. Connect GitHub. On GitHub's "Install Cloudflare" page choose
-      **Only select repositories**, pick the new catalogue repository → **Install & Authorize**.
-   3. Pick the repository → **Begin setup**. Project name: paste the name from step 1.
-      Framework preset **None**, Build command `exit 0`, Build output directory empty →
-      **Save and Deploy**. Cloudflare shows the address (if the name was taken it adds a few
-      letters — copy exactly what it shows).
-5. Back in the app: check the address, click **Connect website**, then **Publish**.
+**Every new catalogue website (seconds):** Publish → Website → **+ Add a website… → Its own
+brand-free website** → check the name → **Create website** → **Publish**.
 
-Each later **Update online version** goes live in about a minute.
+Updating a catalogue (or publishing next year's edition to the same link) needs no setup at all.
+
+*Older way (still works):* **Use a GitHub repository instead** — a repository per catalogue
+connected to Cloudflare Pages through Git (the 4-step screen).
 
 Do **not** use Cloudflare's "Add a website / domain" screen for this step — that is for
 moving a domain's DNS to Cloudflare and is only needed for your own domain (below).
@@ -118,7 +112,9 @@ any time: prices and links update, nothing is duplicated, and hotspots you moved
 
 ## Your own statistics (Cloudflare Pages)
 
-Library → **Stats** on a published catalogue → **Turn on statistics** → follow the three steps:
+Library → **Stats** on a published catalogue → **Turn on statistics**. For websites created with the
+connected Cloudflare account that is all — the app creates the database, connects it and updates the
+site. For websites connected through a GitHub repository, follow the three steps shown:
 1. **Update online version** (uploads two small files: `functions/api/fs-collect.js`, `fs-stats.js`).
 2. Cloudflare → **Storage & Databases → D1 SQL Database → Create** → `catalogue-stats`.
 3. **Workers & Pages →** your project → **Settings → Bindings → Add → D1 database** → variable

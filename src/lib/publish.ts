@@ -6,7 +6,8 @@
 // Only the GitHub REST API is used (git data endpoints), straight from the app;
 // no server of our own is involved.
 
-import { COLLECT_FUNCTION, COLLECT_PATH, STATS_PATH, statsFunction } from './stats'
+import { COLLECT_FUNCTION, COLLECT_PATH, STATS_PATH, statsFunction, statsWorker } from './stats'
+import { CloudflareApi, loadCloudflare } from './cloudflare'
 import { buildPublicationFiles, bytesToBase64, type ExportOptions, type ProjectState, type PublicationFile } from './project'
 
 export interface PublishSettings {
@@ -31,6 +32,10 @@ export interface PublishSettings {
   layout?: 'shelf' | 'single'
   /** Own statistics (Cloudflare Pages + D1): private key kept on this computer, its hash goes online. */
   stats?: { key: string; keyHash: string }
+  /** 'cloudflare': uploaded straight to a Cloudflare Pages project (no GitHub repository). */
+  host?: 'github' | 'cloudflare'
+  /** Cloudflare Pages project name (host 'cloudflare'). */
+  cfProject?: string
 }
 
 export interface CatalogEntry {
@@ -126,6 +131,7 @@ export function savePublishSettings(settings: PublishSettings | null): void {
 }
 
 export function settingsComplete(settings: PublishSettings | null): settings is PublishSettings {
+  if (settings?.host === 'cloudflare') return Boolean(settings.cfProject && normalizeSiteUrl(settings.siteUrl))
   return Boolean(settings && settings.owner.trim() && settings.repo.trim() && settings.branch.trim() && settings.token.trim() && normalizeSiteUrl(settings.siteUrl))
 }
 
@@ -520,6 +526,9 @@ export interface PublishOptions extends ExportOptions {
   shareImage?: (project: ProjectState) => Promise<Uint8Array | null>
   /** GitHub API base URL (tests point this at a fake server). */
   apiBase?: string
+  /** Cloudflare API (tests). */
+  cloudflareFetch?: FetchLike
+  cloudflareBase?: string
 }
 
 export interface PublishResult {
@@ -632,6 +641,7 @@ export async function publishBook(settings: PublishSettings, project: ProjectSta
       stats: settings.stats?.keyHash ? { url: `/${COLLECT_PATH}`, pub: slug } : undefined,
     },
   })
+  if (settings.host === 'cloudflare') return publishToCloudflare(settings, project, files, url, options)
   const share = await (options.shareImage ?? makeShareImage)(project)
   const coverFile: PublicationFile | undefined = share
     ? { path: 'cover.jpg', data: share }
@@ -648,6 +658,32 @@ export async function publishBook(settings: PublishSettings, project: ProjectSta
       throw error
     }
   }
+}
+
+function cloudflareApi(options: { cloudflareFetch?: FetchLike; cloudflareBase?: string }): CloudflareApi {
+  const connection = loadCloudflare()
+  if (!connection) throw new PublishError('Cloudflare is not connected on this computer. Open Publish → Website → Settings and connect Cloudflare again.')
+  return new CloudflareApi(connection, options.cloudflareFetch, options.cloudflareBase)
+}
+
+/** Direct upload to Cloudflare Pages: the whole website in one deployment (only new or changed files are sent). */
+async function publishToCloudflare(settings: PublishSettings, project: ProjectState, files: PublicationFile[], url: string, options: PublishOptions): Promise<PublishResult> {
+  const progress = options.onProgress ?? (() => undefined)
+  const api = cloudflareApi(options)
+  const share = await (options.shareImage ?? makeShareImage)(project)
+  const coverFile = share ? { path: 'cover.jpg', data: share } : files.find((file) => file.path.startsWith('pages/page-001.'))
+  if (coverFile) files.push({ path: 'cover.jpg', data: coverFile.data })
+  const catalog: Catalog = { version: 1, title: settings.siteTitle, books: [{ slug: '', title: project.title, description: project.description ?? '', category: project.category ?? '', keywords: project.keywords ?? '', pageCount: project.pages.length, updatedAt: new Date().toISOString(), ...(project.reader?.noIndex ? { noIndex: true } : {}) }] }
+  const text = (path: string, content: string) => ({ path, bytes: new TextEncoder().encode(content) })
+  const all = [
+    ...files.map((file) => ({ path: file.path, bytes: toBytes(file.data) })),
+    text('404.html', NOT_FOUND_HTML.replace('__HOME__', escapeHtml(`${normalizeSiteUrl(settings.siteUrl)}/`)).replace('See all publications', 'Open the catalogue')),
+    text('sitemap.xml', buildSitemap(catalog, settings)),
+    text('robots.txt', buildRobots(catalog, settings)),
+  ]
+  const result = await api.deploy(settings.cfProject!, all, { worker: settings.stats?.keyHash ? statsWorker(settings.stats.keyHash) : undefined, message: `Publish “${project.title}”`, onProgress: progress })
+  progress('Published')
+  return { url, slug: '', commit: result.url, uploaded: result.uploaded, unchanged: result.unchanged, removed: 0 }
 }
 
 async function commitPublication(
@@ -706,8 +742,16 @@ async function commitPublication(
 }
 
 /** Removes a publication's folder from the website and from the site home page. */
-export async function unpublishBook(settings: PublishSettings, slug: string, options: { fetchImpl?: FetchLike; apiBase?: string; onProgress?: PublishProgress } = {}): Promise<{ commit: string; removed: number }> {
+export async function unpublishBook(settings: PublishSettings, slug: string, options: { fetchImpl?: FetchLike; apiBase?: string; onProgress?: PublishProgress; cloudflareFetch?: FetchLike; cloudflareBase?: string } = {}): Promise<{ commit: string; removed: number }> {
   if (!settingsComplete(settings)) throw new PublishError('Publishing is not set up yet.')
+  if (settings.host === 'cloudflare') {
+    // A Cloudflare website cannot be emptied: it gets a short "no longer available" page instead.
+    const api = cloudflareApi(options)
+    options.onProgress?.('Taking the catalogue offline…')
+    const page = NOT_FOUND_HTML.replace('__HOME__', '#').replace(/<a [^>]*>[^<]*<\/a>/, '').replace('Publication not found', 'Catalogue not available')
+    await api.deploy(settings.cfProject!, [{ path: 'index.html', bytes: new TextEncoder().encode(page) }, { path: '404.html', bytes: new TextEncoder().encode(page) }, { path: 'robots.txt', bytes: new TextEncoder().encode('User-agent: *\nDisallow: /\n') }], { message: 'Unpublished' })
+    return { commit: '', removed: 1 }
+  }
   const repo = new GitHubRepo(settings, options.fetchImpl, options.apiBase)
   options.onProgress?.('Connecting to GitHub…')
   const head = await repo.head()
