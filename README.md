@@ -14,8 +14,10 @@ Built with React + TypeScript + Vite (editor), Tauri 2 (Windows shell), PDF.js a
 - **Animation**: timeline with entrance, emphasis and exit presets; Preview is the exported reader with real page turns.
 - **PDF import wizard**: title, description, category, keywords; keep the PDF's text selectable, copyable and searchable (or images only); web-optimised / high / maximum page quality; reader colour theme.
 - **Frames and crop**: rounded corners, circle, border and shadow for images and slideshows; crop by double-clicking (drag to pan, scroll to zoom) or with sliders.
-- **Reader**: page turns, Select text, Search (Ctrl+F) with highlighted results, product pop-ups, works on phones.
-- **Publish online**: every publication gets its own shareable link with WhatsApp/social preview, plus a bookshelf home page. Free hosting via GitHub + Vercel / Cloudflare Pages / GitHub Pages — see [HOSTING.md](HOSTING.md).
+- **Reader**: page turns, zoom (double-click / Ctrl+wheel, drag to pan), All pages + go to page, Select text, Search (Ctrl+F), page-flip sound with mute, product pop-ups, works on phones; pages load lazily so 250-page catalogues open instantly.
+- **Flipbook design** (🎨 in the editor): themes, background colour / gradient / image, toolbar colours, page-turn presets (smooth, magazine, hardcover, quick) with speed and soft cover, page sound (built-in or your own), optional logo — with a live preview.
+- **Replace PDF**: import a new version of the catalogue PDF and keep all objects, animations and the design.
+- **Publish online**: several websites — a brand-free website for one catalogue (e.g. `promotionalgifts-catalogue-2027.pages.dev`, Cloudflare Pages) or a bookshelf of publications (GitHub Pages) — with WhatsApp/social previews. See [HOSTING.md](HOSTING.md).
 - **Export**: a self-contained HTML file, or a ZIP folder for web hosting. Fonts are embedded and everything works offline.
 
 ## Develop

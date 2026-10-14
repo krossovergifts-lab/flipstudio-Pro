@@ -6,16 +6,18 @@ import { openExternal } from '../lib/external'
 import {
   bookUrl,
   connectGitHubPages,
+  loadSites,
+  pagesProjectName,
+  siteLabel,
+  upsertSite,
   DEFAULT_SITE_REPO,
   newRepoUrl,
   newTokenUrl,
   EMPTY_SETTINGS,
   GitHubRepo,
-  loadPublishSettings,
   normalizeSiteUrl,
   onlineSlugs,
   publishBook,
-  savePublishSettings,
   settingsComplete,
   slugify,
   unpublishBook,
@@ -38,7 +40,7 @@ export interface PublishDialogProps {
   apiBase?: string
 }
 
-type View = 'setup' | 'publish' | 'working' | 'done' | 'unpublish'
+type View = 'choose' | 'setup-pages' | 'setup-single' | 'setup-advanced' | 'publish' | 'working' | 'done' | 'unpublish'
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -63,6 +65,7 @@ function AdvancedSetup({ initial, onSaved, onCancel, fetchImpl, apiBase }: { ini
   const [checking, setChecking] = useState(false)
   const set = (patch: Partial<PublishSettings>) => { setDraft((current) => ({ ...current, ...patch })); setCheck(null) }
   const cleaned = (): PublishSettings => ({
+    ...draft,
     owner: draft.owner.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\/.*$/, ''),
     repo: draft.repo.trim().replace(/\.git$/i, ''),
     branch: draft.branch.trim() || 'main',
@@ -97,6 +100,12 @@ function AdvancedSetup({ initial, onSaved, onCancel, fetchImpl, apiBase }: { ini
         <label>Access token<input type="password" value={draft.token} onChange={(event) => set({ token: event.target.value })} placeholder="github_pat_…" autoComplete="off" spellCheck={false} /></label>
         <label className="wide">Website address<input value={draft.siteUrl} onChange={(event) => set({ siteUrl: event.target.value })} placeholder="https://flipbooks.vercel.app or https://books.yourdomain.com" autoComplete="off" spellCheck={false} /></label>
         <label className="wide">Bookshelf title (site home page)<input value={draft.siteTitle} onChange={(event) => set({ siteTitle: event.target.value })} placeholder="Our publications" /></label>
+        <label className="wide">Website type
+          <select value={draft.layout ?? 'shelf'} onChange={(event) => set({ layout: event.target.value as PublishSettings['layout'] })}>
+            <option value="shelf">Bookshelf — many publications, each at site/link-name/</option>
+            <option value="single">One catalogue — the publication is the whole website</option>
+          </select>
+        </label>
       </div>
       <p className="publish-note">The token is stored only on this computer (not in projects, exports or the website). Anyone with it can change the repository, so keep it private and limited to this one repository.</p>
       {check && <p className={check.ok ? 'publish-ok' : 'publish-error'} role="status">{check.message}</p>}
@@ -186,12 +195,148 @@ function SetupForm({ initial, onSaved, onCancel, fetchImpl, apiBase }: { initial
   )
 }
 
+
+function SingleSiteSetup({ initial, suggestedName, onSaved, onCancel, fetchImpl, apiBase }: { initial: Partial<PublishSettings>; suggestedName: string; onSaved: (settings: PublishSettings) => void; onCancel: () => void; fetchImpl?: PublishDialogProps['fetchImpl']; apiBase?: string }) {
+  const [name, setName] = useState(() => {
+    try {
+      if (initial.siteUrl && /\.pages\.dev$/i.test(new URL(initial.siteUrl).hostname)) return new URL(initial.siteUrl).hostname.split('.')[0]
+    } catch {
+      // fall through to a name from the title
+    }
+    return pagesProjectName(suggestedName)
+  })
+  const [repo, setRepo] = useState(initial.repo || pagesProjectName(suggestedName).slice(0, 40) || 'catalogue')
+  const [owner, setOwner] = useState(initial.owner ?? '')
+  const [token, setToken] = useState(initial.token ?? '')
+  const [siteUrl, setSiteUrl] = useState(initial.siteUrl ?? '')
+  const [busy, setBusy] = useState('')
+  const [problem, setProblem] = useState('')
+  const [copied, setCopied] = useState(false)
+  const address = siteUrl.trim() || (name ? `https://${name}.pages.dev` : '')
+
+  const connect = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setProblem('')
+    setBusy('Checking the repository and key…')
+    try {
+      let login = owner.trim()
+      if (!login) {
+        const probe = new GitHubRepo({ ...EMPTY_SETTINGS, token: token.trim(), owner: 'x', repo: 'x' }, fetchImpl, apiBase)
+        login = (await probe.request<{ login: string }>('GET', `${probe.api}/user`)).data.login
+        setOwner(login)
+      }
+      const settings: PublishSettings = {
+        ...EMPTY_SETTINGS,
+        ...initial,
+        owner: login,
+        repo: repo.trim(),
+        branch: initial.branch || 'main',
+        token: token.trim(),
+        siteUrl: normalizeSiteUrl(address),
+        siteTitle: initial.siteTitle || suggestedName,
+        label: initial.label || normalizeSiteUrl(address).replace(/^https?:\/\//, ''),
+        layout: 'single',
+      }
+      const info = await new GitHubRepo(settings, fetchImpl, apiBase).checkAccess()
+      settings.branch = info.defaultBranch || settings.branch
+      if (!settingsComplete(settings)) throw new Error('Fill in the website address.')
+      onSaved(settings)
+    } catch (err) {
+      setProblem(errorMessage(err, 'Could not connect.'))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <form className="publish-setup" onSubmit={(event) => void connect(event)}>
+      <p className="publish-intro">A website of its own for one catalogue — free on Cloudflare Pages, with a brand-free address like <code>{name || 'your-name'}.pages.dev</code>. Unlimited visitors, commercial use allowed.</p>
+      <label className="publish-name">
+        Website name (becomes the link)
+        <div className="publish-slug-row">
+          <span className="publish-prefix">https://</span>
+          <input value={name} onChange={(event) => setName(pagesProjectName(event.target.value) || event.target.value.toLowerCase())} aria-label="Website name" spellCheck={false} />
+          <span className="publish-prefix">.pages.dev</span>
+          <button type="button" onClick={() => { void navigator.clipboard?.writeText(name).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500) }).catch(() => undefined) }}>{copied ? 'Copied ✓' : 'Copy'}</button>
+        </div>
+      </label>
+      <div className="publish-step">
+        <span className="publish-step-no">1</span>
+        <div>
+          <strong>Create a repository for this catalogue</strong>
+          <span>Name <code>{repo}</code> — Private is fine. Click <em>Create repository</em>.</span>
+        </div>
+        <a className="publish-step-btn" href={newRepoUrl(repo, 'private')} target="_blank" rel="noopener noreferrer">Create repository ↗</a>
+      </div>
+      <div className="publish-step">
+        <span className="publish-step-no">2</span>
+        <div>
+          <strong>Let your access key use it</strong>
+          <span>Open your keys → <em>FlipStudio Pro publishing</em> → <em>Edit</em> → Repository access: add <code>{repo}</code> → <em>Update</em>. (Contents: Read and write is already set.)</span>
+        </div>
+        <a className="publish-step-btn" href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener noreferrer">Open my keys ↗</a>
+      </div>
+      <div className="publish-step">
+        <span className="publish-step-no">3</span>
+        <div>
+          <strong>Create the website on Cloudflare (free account)</strong>
+          <span><em>Workers &amp; Pages</em> → <em>Create</em> → <em>Pages</em> → <em>Import an existing Git repository</em> → choose <code>{repo}</code> → Project name <code>{name}</code> (Copy button above) → Framework preset <em>None</em>, leave Build command empty, Build output directory <code>/</code> → <em>Save and Deploy</em>.</span>
+        </div>
+        <a className="publish-step-btn" href="https://dash.cloudflare.com/sign-up/pages" target="_blank" rel="noopener noreferrer">Open Cloudflare ↗</a>
+      </div>
+      <div className="publish-step">
+        <span className="publish-step-no">4</span>
+        <div className="publish-step-fields">
+          <strong>Check the address and connect</strong>
+          <label>Website address (as Cloudflare shows it)<input value={siteUrl} onChange={(event) => setSiteUrl(event.target.value)} placeholder={address || 'https://your-name.pages.dev'} spellCheck={false} /></label>
+          <label>Repository<input value={repo} onChange={(event) => setRepo(event.target.value)} spellCheck={false} /></label>
+          <label>Access key<input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="github_pat_…" aria-label="Access key" autoComplete="off" spellCheck={false} /></label>
+        </div>
+      </div>
+      <p className="publish-note">Later you can add your own domain (e.g. giftscatalogue2027.com) in Cloudflare → your project → Custom domains, then change the website address here.</p>
+      {problem && <p className="publish-error" role="alert">{problem}</p>}
+      {busy && <p className="publish-note" role="status">{busy}</p>}
+      <div className="publish-foot">
+        <span className="spacer" />
+        <button type="button" onClick={onCancel}>Back</button>
+        <button type="submit" className="primary" disabled={!token.trim() || !repo.trim() || !address || Boolean(busy)}>{busy ? 'Connecting…' : 'Connect website'}</button>
+      </div>
+    </form>
+  )
+}
+
+function ChooseSite({ onPick, onCancel, hasSites }: { onPick: (kind: 'setup-pages' | 'setup-single') => void; onCancel: () => void; hasSites: boolean }) {
+  return (
+    <div className="publish-body">
+      <p className="publish-intro">Where should this publication go online?</p>
+      <button type="button" className="publish-choice" onClick={() => onPick('setup-single')}>
+        <strong>Its own brand-free website <em>Best for the main catalogue</em></strong>
+        <span>One catalogue at its own address, e.g. <code>promotionalgifts-catalogue-2027.pages.dev</code> — safe for resellers to share. Free on Cloudflare Pages.</span>
+      </button>
+      <button type="button" className="publish-choice" onClick={() => onPick('setup-pages')}>
+        <strong>Bookshelf on GitHub Pages</strong>
+        <span>Many publications on one site, each at <code>yourname.github.io/flipbooks/link-name/</code>. The address shows your GitHub name.</span>
+      </button>
+      <div className="publish-foot">
+        <span className="spacer" />
+        <button type="button" onClick={onCancel}>{hasSites ? 'Back' : 'Cancel'}</button>
+      </div>
+    </div>
+  )
+}
+
 /** Publish a publication as its own online flipbook link; update or unpublish it later. */
 export function PublishDialog({ library, bookId, project: givenProject, onClose, onChange, fetchImpl, apiBase }: PublishDialogProps) {
   const book = library.index.books.find((candidate) => candidate.id === bookId)
-  const [settings, setSettings] = useState<PublishSettings | null>(() => loadPublishSettings())
-  const [view, setView] = useState<View>(() => (settingsComplete(loadPublishSettings()) ? 'publish' : 'setup'))
-  const [slug, setSlug] = useState(book?.published?.slug ?? slugify(book?.title ?? givenProject?.title ?? 'publication'))
+  const [sites, setSites] = useState<PublishSettings[]>(() => loadSites().filter(settingsComplete))
+  const [siteId, setSiteId] = useState<string | undefined>(() => {
+    const all = loadSites().filter(settingsComplete)
+    const wanted = book?.published?.siteId
+    return (wanted && all.some((site) => site.id === wanted) ? wanted : all[0]?.id) ?? undefined
+  })
+  const [editing, setEditing] = useState<PublishSettings | null>(null)
+  const [view, setView] = useState<View>(() => (loadSites().some(settingsComplete) ? 'publish' : 'choose'))
+  const [slug, setSlug] = useState(book?.published?.slug || slugify(book?.title ?? givenProject?.title ?? 'publication'))
   const [progress, setProgress] = useState({ message: '', done: 0, total: 0 })
   const [error, setError] = useState('')
   const [result, setResult] = useState<{ url: string; summary: string } | null>(null)
@@ -200,6 +345,9 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const published = book?.published
   const working = view === 'working'
+  const settings = sites.find((site) => site.id === siteId) ?? null
+  const single = settings?.layout === 'single'
+  const publishedSite = published ? sites.find((site) => site.id === (published.siteId ?? 'site-main')) ?? null : null
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -215,7 +363,7 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
 
   // Links already used by other publications (this library, or published from another computer).
   useEffect(() => {
-    if (view !== 'publish' || !settingsComplete(settings)) return
+    if (view !== 'publish' || !settingsComplete(settings) || settings.layout === 'single') return
     let cancelled = false
     onlineSlugs(settings, fetchImpl, apiBase)
       .then((slugs) => { if (!cancelled) setTaken(slugs) })
@@ -223,15 +371,26 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
     return () => { cancelled = true }
   }, [apiBase, fetchImpl, settings, view])
 
-  const librarySlugs = useMemo(
-    () => new Map(library.index.books.filter((other) => other.id !== bookId && other.published).map((other) => [other.published!.slug, other.title])),
-    [bookId, library.index.books],
+  const others = useMemo(
+    () => library.index.books.filter((other) => other.id !== bookId && other.published && (other.published.siteId ?? 'site-main') === siteId),
+    [bookId, library.index.books, siteId],
   )
-  const slugProblem = validateSlug(slug)
+  const librarySlugs = new Map(others.map((other) => [other.published!.slug, other.title]))
+  const slugProblem = single ? '' : validateSlug(slug)
     || (librarySlugs.has(slug) ? `“${librarySlugs.get(slug)}” already uses this link. Choose another name.` : '')
-  const takenOnline = !slugProblem && slug !== published?.slug && taken.includes(slug)
+  const takenOnline = !single && !slugProblem && slug !== published?.slug && taken.includes(slug)
+  const replacing = single ? others[0] : undefined
+  const movingSite = Boolean(published && publishedSite && settings && publishedSite.id !== settings.id)
 
   if (!book) return null
+
+  const saveSite = (next: PublishSettings) => {
+    const saved = upsertSite(next)
+    setSites(loadSites().filter(settingsComplete))
+    setSiteId(saved.id)
+    setEditing(null)
+    setView('publish')
+  }
 
   const doPublish = async () => {
     if (!settingsComplete(settings) || slugProblem) return
@@ -239,18 +398,19 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
     setError('')
     try {
       const project = givenProject ?? (await library.openBook(bookId))
-      // Changing the link name moves the publication: remove the old folder afterwards.
       const outcome = await publishBook(settings, project, {
         slug,
         fetchImpl,
         apiBase,
         onProgress: (message, done = 0, total = 0) => setProgress({ message, done, total }),
       })
-      if (published && published.slug !== slug) {
+      // Changing the link name (or website) moves the publication: remove the old copy afterwards.
+      if (published && publishedSite && (publishedSite.id !== settings.id || (!single && published.slug !== slug))) {
         setProgress({ message: 'Removing the old link…', done: 0, total: 0 })
-        await unpublishBook(settings, published.slug, { fetchImpl, apiBase })
+        await unpublishBook(publishedSite, published.slug, { fetchImpl, apiBase }).catch(() => undefined)
       }
-      await library.setPublished(bookId, { slug, url: outcome.url, publishedAt: new Date().toISOString() })
+      if (replacing) await library.setPublished(replacing.id, null)
+      await library.setPublished(bookId, { slug: single ? '' : slug, url: outcome.url, publishedAt: new Date().toISOString(), siteId: settings.id })
       onChange()
       const summary = outcome.uploaded === 0 && published ? 'Nothing had changed since the last publish.' : `${outcome.uploaded} file${outcome.uploaded === 1 ? '' : 's'} uploaded${outcome.unchanged ? `, ${outcome.unchanged} unchanged` : ''}.`
       setResult({ url: outcome.url, summary })
@@ -262,11 +422,12 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
   }
 
   const doUnpublish = async () => {
-    if (!settingsComplete(settings) || !published) return
+    const site = publishedSite ?? settings
+    if (!settingsComplete(site) || !published) return
     setView('working')
     setError('')
     try {
-      await unpublishBook(settings, published.slug, { fetchImpl, apiBase, onProgress: (message) => setProgress({ message, done: 0, total: 0 }) })
+      await unpublishBook(site, published.slug, { fetchImpl, apiBase, onProgress: (message) => setProgress({ message, done: 0, total: 0 }) })
       await library.setPublished(bookId, null)
       onChange()
       onClose()
@@ -282,23 +443,40 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
   }
 
   const link = settingsComplete(settings) ? bookUrl(settings, slug || 'publication') : ''
+  const backFromSetup = () => (sites.length ? setView('publish') : setView('choose'))
+  const title = view === 'choose' ? 'Publish online' : view.startsWith('setup') ? (editing ? 'Website settings' : 'Add a website') : 'Publish online'
 
   return (
     <div className="publish-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !working) onClose() }}>
       <div className="publish-dialog" role="dialog" aria-modal="true" aria-label="Publish online" ref={dialogRef}>
         <header>
-          <h2>{view === 'setup' ? 'Set up online publishing' : 'Publish online'}</h2>
+          <h2>{view === 'setup-pages' && !sites.length ? 'Set up online publishing' : title}</h2>
           <span className="publish-book">{book.title}</span>
         </header>
 
-        {view === 'setup' && (
+        {view === 'choose' && <ChooseSite hasSites={sites.length > 0} onPick={(kind) => { setEditing(null); setView(kind) }} onCancel={() => (sites.length ? setView('publish') : onClose())} />}
+
+        {view === 'setup-pages' && (
           <SetupForm
-            initial={settings ?? EMPTY_SETTINGS}
+            initial={editing ?? { ...EMPTY_SETTINGS, token: sites[0]?.token ?? '', owner: sites[0]?.owner ?? '' }}
             fetchImpl={fetchImpl}
             apiBase={apiBase}
-            onCancel={() => (settingsComplete(settings) ? setView('publish') : onClose())}
-            onSaved={(next) => { savePublishSettings(next); setSettings(next); setView('publish') }}
+            onCancel={backFromSetup}
+            onSaved={(next) => saveSite({ ...next, id: editing?.id, layout: next.layout ?? 'shelf' })}
           />
+        )}
+        {view === 'setup-single' && (
+          <SingleSiteSetup
+            initial={editing ?? { token: sites[0]?.token ?? '', owner: sites[0]?.owner ?? '' }}
+            suggestedName={book.title}
+            fetchImpl={fetchImpl}
+            apiBase={apiBase}
+            onCancel={() => (editing ? setView('publish') : setView('choose'))}
+            onSaved={(next) => saveSite({ ...next, id: editing?.id })}
+          />
+        )}
+        {view === 'setup-advanced' && editing && (
+          <AdvancedSetup initial={editing} fetchImpl={fetchImpl} apiBase={apiBase} onCancel={() => setView('publish')} onSaved={(next) => saveSite({ ...next, id: editing.id })} />
         )}
 
         {(view === 'publish' || view === 'working') && settingsComplete(settings) && (
@@ -312,17 +490,43 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
                 </div>
               </div>
             )}
-            <label className="publish-slug">
-              Link name
-              <div className="publish-slug-row">
-                <span className="publish-prefix" title={normalizeSiteUrl(settings.siteUrl)}>{normalizeSiteUrl(settings.siteUrl).replace(/^https?:\/\//, '')}/</span>
-                <input value={slug} onChange={(event) => setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} disabled={working} aria-label="Link name" spellCheck={false} />
-                <span className="publish-prefix">/</span>
+            <label className="publish-site">
+              Website
+              <div className="publish-site-row">
+                <select
+                  value={siteId}
+                  aria-label="Website"
+                  disabled={working}
+                  onChange={(event) => {
+                    if (event.target.value === '__add') { setEditing(null); setView('choose'); return }
+                    setSiteId(event.target.value)
+                  }}
+                >
+                  {sites.map((site) => <option key={site.id} value={site.id}>{siteLabel(site)}{site.layout === 'single' ? ' — own website' : ' — bookshelf'}</option>)}
+                  <option value="__add">+ Add a website…</option>
+                </select>
+                <button type="button" onClick={() => { setEditing(settings); setView(settings.layout === 'single' ? 'setup-single' : 'setup-advanced') }} disabled={working}>Settings</button>
               </div>
             </label>
-            {slugProblem ? <p className="publish-error">{slugProblem}</p> : takenOnline ? <p className="publish-warn">A publication with this link is already online (published from another computer?). Publishing will replace it.</p> : <p className="publish-note">Share link: <code>{link}</code></p>}
-            {published && published.slug !== slug && !slugProblem && <p className="publish-warn">The old link {published.url} will stop working.</p>}
-            <p className="publish-note">Publishes the pages, objects, animations, links and fonts, plus a preview image for WhatsApp and social media. The editable project file is not put online. The website updates about a minute after publishing.</p>
+            {single ? (
+              <p className="publish-note">This publication becomes the whole website. Share link: <code>{link}</code></p>
+            ) : (
+              <>
+                <label className="publish-slug">
+                  Link name
+                  <div className="publish-slug-row">
+                    <span className="publish-prefix" title={normalizeSiteUrl(settings.siteUrl)}>{normalizeSiteUrl(settings.siteUrl).replace(/^https?:\/\//, '')}/</span>
+                    <input value={slug} onChange={(event) => setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} disabled={working} aria-label="Link name" spellCheck={false} />
+                    <span className="publish-prefix">/</span>
+                  </div>
+                </label>
+                {slugProblem ? <p className="publish-error">{slugProblem}</p> : takenOnline ? <p className="publish-warn">A publication with this link is already online (published from another computer?). Publishing will replace it.</p> : <p className="publish-note">Share link: <code>{link}</code></p>}
+              </>
+            )}
+            {replacing && <p className="publish-warn">“{replacing.title}” is on this website now. Publishing replaces it with this publication.</p>}
+            {movingSite && <p className="publish-warn">It moves from {published!.url} — that old link will stop working.</p>}
+            {published && !movingSite && !single && published.slug && published.slug !== slug && !slugProblem && <p className="publish-warn">The old link {published.url} will stop working.</p>}
+            <p className="publish-note">Publishes the pages, objects, animations, links, fonts and the flipbook design, plus a preview image for WhatsApp and social media. The editable project file is not put online. The website updates about a minute after publishing.</p>
             {error && <p className="publish-error" role="alert">{error}</p>}
             {working && (
               <div className="publish-progress" role="status" aria-live="polite">
@@ -331,12 +535,11 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
               </div>
             )}
             <div className="publish-foot">
-              <button type="button" className="link-like" onClick={() => setView('setup')} disabled={working}>Publishing settings</button>
               <span className="spacer" />
               {published && <button type="button" className="danger" onClick={() => setView('unpublish')} disabled={working}>Unpublish</button>}
               <button type="button" onClick={onClose} disabled={working}>Close</button>
               <button type="button" className="primary" onClick={() => void doPublish()} disabled={working || Boolean(slugProblem)}>
-                {working ? 'Publishing…' : published ? 'Update online version' : 'Publish'}
+                {working ? 'Publishing…' : published && !movingSite ? 'Update online version' : 'Publish'}
               </button>
             </div>
           </div>

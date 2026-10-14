@@ -180,6 +180,41 @@ describe('editor workflows', () => {
     expect(screen.getByText(/notes\.txt is not a supported image/)).toBeTruthy()
   })
 
+  it('replaces the PDF with a new version and keeps objects on the same pages', async () => {
+    const renderedPage = {
+      getViewport: ({ scale }: { scale: number }) => ({ width: 200 * scale, height: 300 * scale }),
+      render: () => ({ promise: Promise.resolve() }),
+    }
+    vi.mocked(pdfjsLib.getDocument).mockReturnValue({
+      promise: Promise.resolve({ numPages: 2, getPage: vi.fn().mockResolvedValue(renderedPage) }),
+    } as unknown as ReturnType<typeof pdfjsLib.getDocument>)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as CanvasRenderingContext2D)
+    const toDataURL = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,djE=')
+    render(<App />)
+    const pdfInput = document.querySelector<HTMLInputElement>('input[type="file"][accept="application/pdf"]')!
+    const importFile = async (name: string) => {
+      const file = new File(['pdf'], name, { type: 'application/pdf' })
+      Object.defineProperty(file, 'arrayBuffer', { value: async () => new ArrayBuffer(8) })
+      fireEvent.change(pdfInput, { target: { files: [file] } })
+      return screen.findByRole('dialog', { name: 'Import PDF' })
+    }
+    let wizard = await importFile('v1.pdf')
+    await waitFor(() => expect((within(wizard).getByRole('button', { name: 'Import PDF' }) as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(within(wizard).getByRole('button', { name: 'Import PDF' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Page 2/ })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Add text' }))
+    fireEvent.change(screen.getByLabelText('Label'), { target: { value: 'Best seller' } })
+
+    toDataURL.mockReturnValue('data:image/jpeg;base64,djI=')
+    wizard = await importFile('v2.pdf')
+    expect((within(wizard).getByRole('radio', { name: /Replace PDF, keep my work/ }) as HTMLInputElement).checked).toBe(true)
+    await waitFor(() => expect((within(wizard).getByRole('button', { name: 'Import PDF' }) as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(within(wizard).getByRole('button', { name: 'Import PDF' }))
+    await waitFor(() => expect(screen.getByText(/Replaced the PDF/)).toBeTruthy())
+    expect(document.querySelector('.page-canvas .fs-text')!.textContent).toBe('Best seller')
+    expect(document.querySelector<HTMLImageElement>('.page-canvas img.page-background')!.getAttribute('src')).toBe('data:image/jpeg;base64,djI=')
+  })
+
   it('imports rendered PDF pages, builds matching thumbnails, and navigates pages', async () => {
     const renderedPage = {
       getViewport: ({ scale }: { scale: number }) => ({ width: 200 * scale, height: 300 * scale }),

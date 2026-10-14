@@ -14,6 +14,9 @@ import {
   whatsappShareUrl,
   connectGitHubPages,
   newTokenUrl,
+  loadSites,
+  upsertSite,
+  pagesProjectName,
   type PublishSettings,
 } from './publish'
 
@@ -189,6 +192,44 @@ describe('one-step GitHub Pages setup', () => {
     expect(url.searchParams.get('contents')).toBe('write')
     expect(url.searchParams.get('pages')).toBe('write')
     expect(url.searchParams.get('target_name')).toBe('krossovergifts-lab')
+  })
+})
+
+describe('brand-free single-catalogue website', () => {
+  const single: PublishSettings = { ...settings, repo: 'catalogue-2027', siteUrl: 'https://promotionalgifts-catalogue-2027.pages.dev', layout: 'single' }
+
+  it('puts the publication at the root of its own website', async () => {
+    const github = await createFakeGitHub()
+    const result = await publishBook(single, book(), { slug: 'ignored', fetchImpl: github.fetch, apiBase: API, shareImage: share, loadFont: noFonts })
+    expect(result.url).toBe('https://promotionalgifts-catalogue-2027.pages.dev/')
+    const files = github.files()
+    expect(Object.keys(files).sort()).toEqual(['.nojekyll', '404.html', 'README.md', 'cover.jpg', 'index.html', 'pages/page-001.jpg', 'pages/page-002.jpg'])
+    expect(files['index.html']).toContain('<meta property="og:image" content="https://promotionalgifts-catalogue-2027.pages.dev/cover.jpg" />')
+    expect(files['index.html']).not.toContain('krossover')
+    expect(files['404.html']).toContain('Open the catalogue')
+
+    // A new version with fewer pages removes the old page; the repository README stays.
+    const again = await publishBook(single, book({}, [PAGE]), { slug: '', fetchImpl: github.fetch, apiBase: API, shareImage: share, loadFont: noFonts })
+    expect(again.removed).toBe(1)
+    expect(github.files()['pages/page-002.jpg']).toBeUndefined()
+    expect(github.files()['README.md']).toBeTruthy()
+
+    const gone = await unpublishBook(single, '', { fetchImpl: github.fetch, apiBase: API })
+    expect(gone.removed).toBeGreaterThan(0)
+    expect(Object.keys(github.files())).toEqual(['README.md'])
+  })
+
+  it('keeps several websites and migrates the earlier single setting', () => {
+    window.localStorage.clear()
+    window.localStorage.setItem('flipstudio.publish.v1', JSON.stringify(settings))
+    const [migrated] = loadSites()
+    expect(migrated).toMatchObject({ repo: 'flipbooks', layout: 'shelf', id: 'site-main' })
+    const added = upsertSite({ ...single, id: undefined, label: 'Catalogue 2027' })
+    expect(loadSites().map((site) => site.label ?? site.repo)).toEqual(['flipbooks', 'Catalogue 2027'])
+    upsertSite({ ...added, siteUrl: 'https://giftscatalogue2027.com' })
+    expect(loadSites()[1].siteUrl).toBe('https://giftscatalogue2027.com')
+    expect(pagesProjectName('Promotional Gifts Catalogue 2027!')).toBe('promotional-gifts-catalogue-2027')
+    window.localStorage.clear()
   })
 })
 

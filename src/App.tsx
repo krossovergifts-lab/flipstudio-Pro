@@ -47,6 +47,7 @@ import { FONT_FILE_ACCEPT, fontFaceCss, fontMimeType } from './lib/fonts'
 import { fileToDataUrl } from './lib/assets'
 import { importPdfPages, type PdfImportOptions } from './lib/pdfImport'
 import { PdfImportDialog, type PdfBookInfo } from './components/PdfImportDialog'
+import { ThemeDialog } from './components/ThemeDialog'
 import { downloadBlob, exportPublication } from './lib/exporters'
 import { errorMessage } from './lib/errors'
 
@@ -918,19 +919,15 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
   )
 
   const [pdfFile, setPdfFile] = useState<File | null>(null)
+  const [designOpen, setDesignOpen] = useState(false)
   const handleImportPdf = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0]
       event.target.value = ''
       if (!file) return
-      const hasWork = committedProject.pages.some((page) => page.overlays.length > 0)
-      if (hasWork && !window.confirm(`Importing ${file.name} replaces this publication's pages. Objects on the current pages will be removed (you can Undo). Continue?`)) {
-        report('PDF import cancelled')
-        return
-      }
       setPdfFile(file)
     },
-    [committedProject, report],
+    [],
   )
 
   const runPdfImport = useCallback(
@@ -939,6 +936,28 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
         report(`Importing ${file.name}…`)
         const { pages: imported, textPages } = await importPdfPages(file, options, (page, total) => setStatus(`Importing ${file.name}: page ${page} of ${total}`))
 
+        const keep = Boolean(info.keepObjects)
+        const oldPages = committedProject.pages
+        // New version of the PDF: pages are matched by number, so objects stay on "their" page.
+        const pages = keep
+          ? imported.map((page, index) => {
+              const old = oldPages[index]
+              if (!old) return page
+              const sx = page.width / old.width
+              const sy = page.height / old.height
+              const scaled = Math.abs(sx - 1) > 0.01 || Math.abs(sy - 1) > 0.01
+              return {
+                ...page,
+                id: old.id,
+                name: old.name && !/^page \d+$/i.test(old.name) ? old.name : page.name,
+                overlays: scaled
+                  ? old.overlays.map((overlay) => ({ ...overlay, x: overlay.x * sx, y: overlay.y * sy, width: overlay.width * sx, height: overlay.height * sy, fontSize: overlay.fontSize ? overlay.fontSize * sx : overlay.fontSize }))
+                  : old.overlays,
+              }
+            })
+          : imported
+        const dropped = keep ? oldPages.slice(imported.length).reduce((total, page) => total + page.overlays.length, 0) : 0
+        const keptIds = new Set(pages.flatMap((page) => page.overlays.map((overlay) => overlay.id)))
         const nextProject = createProject({
           version: PROJECT_VERSION,
           id: libraryMode ? committedProject.id : undefined,
@@ -949,7 +968,8 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
           reader: info.reader,
           fonts: committedProject.fonts,
           assets: committedProject.assets,
-          pages: imported,
+          animations: keep ? committedProject.animations.filter((animation) => keptIds.has(animation.targetId)) : [],
+          pages,
         })
 
         commitProject(nextProject)
@@ -958,7 +978,10 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
         setSelectedAnimationId('')
         setMode('edit')
         window.requestAnimationFrame(() => fitToPage(nextProject.pages[0], 1))
-        report(`Imported ${imported.length} PDF pages from ${file.name}${textPages ? ` (selectable text on ${textPages})` : ''}`)
+        report(
+          `${keep ? 'Replaced the PDF' : 'Imported'} — ${imported.length} pages from ${file.name}${textPages ? ` (selectable text on ${textPages})` : ''}${keep ? '; objects and animations kept' : ''}`,
+          dropped ? `The new PDF has fewer pages: ${dropped} object${dropped === 1 ? ' was' : 's were'} on removed pages (Undo brings them back).` : '',
+        )
       } catch (err) {
         report('PDF import failed', errorMessage(err, 'Unable to import PDF file.'))
       }
@@ -1361,10 +1384,23 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
   return (
     <div className={`app-shell ${isPreview ? 'is-preview' : ''} ${showLeft ? '' : 'no-left'} ${showRight ? '' : 'no-right'}`} style={shellStyle}>
       <input ref={pdfInputRef} type="file" accept="application/pdf" onChange={handleImportPdf} hidden />
+      {designOpen && (
+        <ThemeDialog
+          project={committedProject}
+          onCancel={() => setDesignOpen(false)}
+          onApply={(reader, assets) => {
+            setDesignOpen(false)
+            const merged = mergeAssets(committedProject.assets, assets)
+            commitProject({ ...committedProject, reader, assets: merged.assets })
+            report('Flipbook design updated')
+          }}
+        />
+      )}
       {pdfFile && (
         <PdfImportDialog
           file={pdfFile}
-          initial={libraryMode ? { title: /^untitled/i.test(committedProject.title) ? undefined : committedProject.title, description: committedProject.description ?? '', category: committedProject.category ?? '', keywords: committedProject.keywords ?? '', reader: committedProject.reader } : undefined}
+          initial={libraryMode ? { title: /^untitled/i.test(committedProject.title) ? undefined : committedProject.title, description: committedProject.description ?? '', category: committedProject.category ?? '', keywords: committedProject.keywords ?? '', reader: committedProject.reader } : { reader: committedProject.reader }}
+          replace={committedProject.pages.reduce((total, page) => total + page.overlays.length, 0) > 0 ? { pageCount: committedProject.pages.length, objectCount: committedProject.pages.reduce((total, page) => total + page.overlays.length, 0) } : undefined}
           onCancel={() => { setPdfFile(null); report('PDF import cancelled') }}
           onImport={(options, info) => { const file = pdfFile; setPdfFile(null); void runPdfImport(file, options, info) }}
         />
@@ -1408,6 +1444,7 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
         </div>
         <div className="toolbar-spacer" />
         <div className="toolbar-group toolbar-publish" aria-label="Publish">
+          <button type="button" aria-label="Flipbook design" title="Flipbook design: theme, background, page turn, sound" onClick={() => setDesignOpen(true)}>🎨<span className="toolbar-btn-label"> Design</span></button>
           <button type="button" aria-label="Export HTML" title="Export one self-contained HTML file" onClick={() => void exportHtml()}>⇩ HTML</button>
           <button type="button" aria-label="Export ZIP" title="Export a ZIP folder for web hosting" onClick={() => void exportZip()}>⇩ ZIP</button>
           {onPublish && (
@@ -1454,7 +1491,7 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
                       }}
                     >
                       <div className="thumb-preview" style={{ aspectRatio: `${page.width} / ${page.height}` }}>
-                        {page.previewUrl ? <img src={page.previewUrl} alt={page.name} /> : <div className="thumb-placeholder" />}
+                        {page.thumbUrl || page.previewUrl ? <img src={page.thumbUrl ?? page.previewUrl} alt={page.name} loading="lazy" decoding="async" /> : <div className="thumb-placeholder" />}
                       </div>
                       <span className="thumb-label">
                         <strong>{page.name}</strong>

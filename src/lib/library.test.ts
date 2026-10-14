@@ -96,4 +96,42 @@ describe('publication library', () => {
     expect(library.index.books[0].title).toBe('Version 5')
     expect((await library.openBook(book.id)).title).toBe('Version 5')
   })
+
+  it('keeps page images as separate files, writes only new ones and removes unused ones', async () => {
+    const store = createMemoryStore()
+    const writes: string[] = []
+    const writeBlob = store.writeBlob
+    store.writeBlob = async (id, key, dataUrl) => { writes.push(key); await writeBlob(id, key, dataUrl) }
+    const library = new Library(store)
+    await library.load()
+    const page = (n: number) => 'data:image/jpeg;base64,' + btoa(`page-${n}-`.repeat(400))
+    const project = createProject({
+      version: PROJECT_VERSION,
+      title: 'Big catalogue',
+      pages: [1, 2, 3].map((n) => ({ id: `p${n}`, width: 595, height: 842, previewUrl: page(n), overlays: [] })),
+    })
+    const book = await library.createBook(project)
+    expect(writes).toHaveLength(3)
+    const json = (await store.readProject(book.id))!
+    expect(json).not.toContain('data:image/jpeg')
+    expect(json.length).toBeLessThan(4000)
+
+    const opened = await library.openBook(book.id)
+    expect(opened.pages.map((p) => p.previewUrl)).toEqual([page(1), page(2), page(3)])
+
+    // Editing objects only: no image is written again.
+    writes.length = 0
+    await library.saveBook(book.id, { ...opened, title: 'Big catalogue v2' })
+    expect(writes).toHaveLength(0)
+
+    // Removing a page removes its image file; duplicating copies the images.
+    await library.saveBook(book.id, { ...opened, pages: opened.pages.slice(0, 2) })
+    expect(await store.listBlobs(book.id)).toHaveLength(2)
+    const copy = await library.duplicateBook(book.id)
+    expect((await library.openBook(copy.id)).pages[1].previewUrl).toBe(page(2))
+    await library.deleteBook(book.id)
+    expect(await store.listBlobs(book.id)).toHaveLength(0)
+    expect((await library.openBook(copy.id)).pages[0].previewUrl).toBe(page(1))
+  })
 })
+

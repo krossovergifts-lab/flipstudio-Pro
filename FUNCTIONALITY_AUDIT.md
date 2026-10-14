@@ -189,6 +189,23 @@ Verified in this (Linux) workspace:
 ### Third-party licences
 `THIRD_PARTY_NOTICES.md` contains the MIT licence of StPageFlip and the OFL licence text of every bundled font. Exported ZIP READMEs list the fonts they embed.
 
+## Fifth pass (2026-10-14): 250-page catalogue, brand-free website, flipbook design
+
+### Added
+- **Large catalogues**: page images (and other large files) are stored as separate files beside the project (`<id>.files/` on desktop, IndexedDB entries in the browser), content-addressed, so saving after an edit writes only the small project JSON. Old projects convert on their next save. Pages get 240 px thumbnails at import for page lists and the reader. The reader loads only nearby page images (3 behind, 6 ahead, unloads beyond 14).
+- **Reader**: zoom (button, double-click, Ctrl+wheel; drag to pan; Esc resets), All pages panel with go-to-page, Home/End keys, icon toolbar, optional logo, page-flip sound (synthesised paper sounds or an uploaded file; mute remembered per reader).
+- **Page-turn presets**: smooth, magazine, hardcover, quick; speed; soft cover (StPageFlip forces the cover to a stiff board — the reader sets it back to soft after loading); page and book shadows.
+- **Flipbook design dialog** (🎨 Design) with themes, background colour/gradient/image, toolbar/button/accent colours, page turn, sound, reader tools, logo, live preview of the first 6 pages.
+- **Websites**: several publishing targets. *Single* layout publishes one publication at the root of its own site (brand-free `*.pages.dev` on Cloudflare Pages); *bookshelf* layout as before. Moving a publication between websites removes the old copy. Test connection now also tries a harmless write, so a key without write access is caught before publishing.
+- **Replace PDF, keep my work**: new PDF versions keep objects, animations and design by page number (objects scale if the page size changed).
+
+### Verification (actual results)
+- `npm test`: **98 passed** (12 files), new: blob storage (memory and desktop file layout with mocked Tauri fs), single-site publishing and site list migration, phrase search, phone layout, replace-PDF.
+- Chromium against the production build: editor 46/46, library 19/19, text/frames 24/24, publishing 24/24 (bookshelf + brand-free site served over HTTP), design/reader 16/16 (theme in preview and export, lazy pages, thumbnails, go to page, zoom/pan, mute, soft cover).
+- **250-page test** (generated PDF, High quality, browser build): import + save 28 s, edit autosave writes only the 390 KB JSON, Preview opens in 0.2 s with 7 page images loaded, reopening the book 1.4 s. A real catalogue with photos renders more slowly per page at import.
+- `cargo check` passed with the added `fs:allow-read-file` permission.
+- Not verified: real Cloudflare Pages deploy, Windows desktop run of the blob storage (unit-tested with a mocked file system), how the synthesised page sound sounds on real speakers.
+
 ## Fourth pass (2026-10-13): frames & crop, PDF text layer, online publishing
 
 ### Added

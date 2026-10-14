@@ -1292,5 +1292,6 @@ button.link-button:hover:not(:disabled) { background: transparent; text-decorati
   .top-toolbar { gap: 4px; padding: 0 8px; }
   .top-toolbar button { padding-left: 6px; padding-right: 6px; }
   .top-toolbar .toolbar-label { display: none; }
+  .top-toolbar .toolbar-btn-label { display: none; }
   .top-toolbar .doc-title { max-width: 140px; }
 }

@@ -93,6 +93,22 @@ export function toPageText(items: RawTextItem[], styles: Record<string, { ascent
   return out
 }
 
+/** Small JPEG of a rendered page for page lists and reader thumbnails. */
+function makeThumb(source: HTMLCanvasElement, width = 240): string | undefined {
+  try {
+    const thumb = document.createElement('canvas')
+    thumb.width = width
+    thumb.height = Math.max(1, Math.round((source.height / Math.max(1, source.width)) * width))
+    const context = thumb.getContext('2d')
+    if (!context || typeof context.drawImage !== 'function') return undefined
+    context.drawImage(source, 0, 0, thumb.width, thumb.height)
+    const url = thumb.toDataURL('image/jpeg', 0.72)
+    return url.startsWith('data:image/') ? url : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export interface PdfInspection {
   pageCount: number
   hasText: boolean
@@ -174,6 +190,7 @@ export async function importPdfPages(
         textPages += 1
       }
     }
+    page.thumbUrl = makeThumb(canvas)
     // Release the canvas memory right away; large catalogues have many pages.
     canvas.width = 0
     canvas.height = 0

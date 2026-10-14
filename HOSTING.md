@@ -14,7 +14,37 @@ live, usually within a minute. You do not need a server or to run any commands.
 
 You set this up **once**, inside the app. It takes about 2 minutes.
 
-## Easy setup — free hosting on GitHub Pages (recommended)
+## Brand-free website for one catalogue (recommended for the 2027 catalogue)
+
+For a catalogue resellers will forward, give it its **own website** with a neutral
+address such as `https://promotionalgifts-catalogue-2027.pages.dev`. It is free on
+Cloudflare Pages, allows commercial use and has no traffic limit. The catalogue opens
+directly at that address (no folder, no GitHub or company name in the link).
+
+In the app: **🌐 Publish → Website → + Add a website… → Its own brand-free website**.
+The window walks you through four steps:
+
+1. **Website name** – type the name you want in the link, e.g.
+   `promotionalgifts-catalogue-2027` (lowercase, dashes). Click **Copy**.
+2. **Create repository ↗** – a new GitHub repository for this catalogue (Private is fine).
+3. **Open my keys ↗** – edit your *FlipStudio Pro publishing* key → Repository access →
+   add the new repository → **Update** (no new key needed).
+4. **Open Cloudflare ↗** – create a free account, then **Workers & Pages → Create →
+   Pages → Import an existing Git repository** → pick the repository → Project name:
+   paste the name from step 1 → Framework preset **None**, Build command empty, Build
+   output directory `/` → **Save and Deploy**. Cloudflare shows the address
+   (if the name was taken it adds a few letters — copy exactly what it shows).
+5. Back in the app: check the address, click **Connect website**, then **Publish**.
+
+Each later **Update online version** goes live in about a minute.
+
+**Your own domain (optional, about USD 10/year):** buy a neutral name such as
+`giftscatalogue2027.com` (Cloudflare Registrar, Namecheap, GoDaddy…). In Cloudflare →
+your Pages project → **Custom domains → Set up a domain**, follow the DNS step, then in the
+app open **Website → Settings** and change the address to `https://giftscatalogue2027.com`
+and publish again (so WhatsApp previews use the new domain).
+
+## Bookshelf on GitHub Pages (many publications on one site)
 
 Click **🌐 Publish** (library card or editor). The setup window has three steps:
 

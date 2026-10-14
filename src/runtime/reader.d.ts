@@ -49,6 +49,7 @@ export interface PublicationPage {
   height: number
   background: string | null
   overlays: PublicationOverlay[]
+  thumb?: string
   text?: Array<{ s: string; x: number; y: number; w: number; h: number; a?: number; f?: string; eol?: boolean }>
 }
 
@@ -57,7 +58,28 @@ export interface PublicationData {
   pages: PublicationPage[]
   animations: EngineAnimation[]
   restartAnimationsOnPageTurn?: boolean
-  reader?: { textTools?: boolean; background?: string; toolbar?: string }
+  reader?: {
+    textTools?: boolean
+    backgroundMode?: 'solid' | 'gradient' | 'image'
+    background?: string
+    backgroundTo?: string
+    backgroundAngle?: number
+    backgroundImage?: string
+    toolbar?: string
+    toolbarText?: string
+    button?: string
+    accent?: string
+    flip?: string
+    flipSpeed?: number
+    cover?: 'soft' | 'hard'
+    pageShadow?: boolean
+    bookShadow?: boolean
+    sound?: string
+    soundUrl?: string
+    thumbnails?: boolean
+    logo?: string
+    logoLink?: string
+  }
 }
 
 export interface PublicationHandle {
@@ -67,6 +89,9 @@ export interface PublicationHandle {
   readonly book: unknown
   readonly selecting: boolean
   setSelectMode(on: boolean): void
+  setZoom(level: number, clientX?: number, clientY?: number): void
+  readonly zoom: number
+  readonly sound: { readonly enabled: boolean; readonly muted: boolean; setMuted(muted: boolean): void; play(): void }
   search(query: string): Array<{ page: number; start: number; end: number }>
   goToPage(index: number): void
   destroy(): void

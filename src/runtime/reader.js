@@ -1,5 +1,6 @@
 import { createClock, createSlideshowController, overlayStyle, sampleFrames, slideClassName, slideTransitionMs, timelineDuration, timelineLoops } from './engine.js'
 import { HOTSPOT_MARKERS, cropStyle, frameStyle, resolveAction, skinClassName, skinStyle, styleFor } from './styles.js'
+import { createFlipSound, flipSettings, themeVariables } from './theme.js'
 
 // FlipStudio Pro publication reader.
 //
@@ -31,6 +32,15 @@ export function mountPublication(root, data, options) {
   const hasText = pages.some((page) => page.text && page.text.length)
   const readerSettings = data.reader || {}
   const textTools = hasText && readerSettings.textTools !== false
+  const flip = flipSettings(readerSettings)
+  const sound = createFlipSound(win, readerSettings.sound || 'paper', readerSettings.soundUrl)
+  const storage = (() => { try { return win.localStorage } catch (error) { void error; return null } })()
+  try { if (storage && storage.getItem('fs-sound-muted') === '1') sound.setMuted(true) } catch (error) { void error }
+  const ZOOMS = [1, 1.6, 2.4]
+  let zoom = 1
+  let panX = 0
+  let panY = 0
+  const mouseFlipping = () => !selectMode && zoom === 1
 
   const make = (tag, className, attrs) => {
     const el = doc.createElement(tag)
@@ -52,23 +62,65 @@ export function mountPublication(root, data, options) {
   // ---------- chrome ----------
   root.replaceChildren()
   root.classList.add('fs-reader')
-  if (readerSettings.background) root.style.setProperty('--fs-reader-bg', readerSettings.background)
-  if (readerSettings.toolbar) root.style.setProperty('--fs-reader-bar', readerSettings.toolbar)
+  const themeVars = themeVariables(readerSettings)
+  applyStyle(root, themeVars)
+  if (readerSettings.bookShadow === false) root.classList.add('fs-no-book-shadow')
+  const ICONS = {
+    prev: '<path d="M15 18l-6-6 6-6"/>',
+    next: '<path d="M9 18l6-6-6-6"/>',
+    pages: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    zoom: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>',
+    zoomOut: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+    select: '<path d="M9 4h6M9 20h6M12 4v16"/>',
+    sound: '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12"/>',
+    muted: '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9l5 6M22 9l-5 6"/>',
+    full: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  }
+  const setIcon = (button, icon, label) => {
+    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' + ICONS[icon] + '</svg><span class="fs-btn-label"></span>'
+    button.lastChild.textContent = label
+    button.setAttribute('aria-label', label)
+    button.setAttribute('title', label)
+  }
+  const iconButton = (action, icon, label, extraClass, attrs) => {
+    const button = make('button', 'fs-reader-btn fs-icon-btn' + (extraClass ? ' ' + extraClass : ''), Object.assign({ type: 'button', 'data-action': action }, attrs || {}))
+    setIcon(button, icon, label)
+    return button
+  }
   const topBar = make('div', 'fs-reader-bar fs-reader-top')
-  const prevButton = make('button', 'fs-reader-btn', { type: 'button', 'data-action': 'previous-page', 'aria-label': 'Previous page' })
-  prevButton.textContent = '‹ Previous'
+  const leftGroup = make('div', 'fs-bar-group fs-bar-left')
+  const centerGroup = make('div', 'fs-bar-group fs-bar-center')
+  const rightGroup = make('div', 'fs-bar-group fs-bar-right')
+  if (readerSettings.logo) {
+    const logo = make(readerSettings.logoLink ? 'a' : 'span', 'fs-reader-logo')
+    if (readerSettings.logoLink) {
+      const href = resolveAction({ type: 'button', link: { type: 'url', value: readerSettings.logoLink } })
+      if (href && href.kind === 'href') {
+        logo.setAttribute('href', href.href)
+        logo.setAttribute('target', '_blank')
+        logo.setAttribute('rel', 'noopener noreferrer')
+      }
+    }
+    logo.append(make('img', '', { src: readerSettings.logo, alt: '' }))
+    leftGroup.append(logo)
+  }
+  const prevButton = iconButton('previous-page', 'prev', 'Previous page')
   const pageCount = make('span', 'fs-reader-count', { 'aria-live': 'polite', 'data-role': 'page-count' })
-  const nextButton = make('button', 'fs-reader-btn', { type: 'button', 'data-action': 'next-page', 'aria-label': 'Next page' })
-  nextButton.textContent = 'Next ›'
-  const fullscreenButton = make('button', 'fs-reader-btn fs-reader-fullscreen', { type: 'button', 'data-action': 'fullscreen', 'aria-label': 'Toggle full screen' })
-  fullscreenButton.textContent = 'Full screen'
-  const selectButton = make('button', 'fs-reader-btn fs-reader-select', { type: 'button', 'data-action': 'select-text', 'aria-pressed': 'false', title: 'Select and copy text' })
-  selectButton.textContent = 'Select text'
-  const searchButton = make('button', 'fs-reader-btn fs-reader-search', { type: 'button', 'data-action': 'search', 'aria-expanded': 'false', title: 'Search this publication' })
-  searchButton.textContent = 'Search'
-  topBar.append(prevButton, pageCount, nextButton)
-  if (textTools) topBar.append(selectButton, searchButton)
-  topBar.append(fullscreenButton)
+  const nextButton = iconButton('next-page', 'next', 'Next page')
+  const thumbsButton = iconButton('thumbnails', 'pages', 'All pages', '', { 'aria-expanded': 'false' })
+  const zoomButton = iconButton('zoom', 'zoom', 'Zoom in', '', { 'aria-pressed': 'false' })
+  const fullscreenButton = iconButton('fullscreen', 'full', 'Full screen', 'fs-reader-fullscreen')
+  const selectButton = iconButton('select-text', 'select', 'Select text', 'fs-reader-select', { 'aria-pressed': 'false' })
+  const searchButton = iconButton('search', 'search', 'Search', 'fs-reader-search', { 'aria-expanded': 'false' })
+  const soundButton = iconButton('sound', sound.muted ? 'muted' : 'sound', sound.muted ? 'Turn page sound on' : 'Mute page sound', 'fs-reader-sound', { 'aria-pressed': String(!sound.muted) })
+  centerGroup.append(prevButton, pageCount, nextButton)
+  if (pages.length > 2 && readerSettings.thumbnails !== false) rightGroup.append(thumbsButton)
+  rightGroup.append(zoomButton)
+  if (textTools) rightGroup.append(searchButton, selectButton)
+  if (sound.enabled) rightGroup.append(soundButton)
+  rightGroup.append(fullscreenButton)
+  topBar.append(leftGroup, centerGroup, rightGroup)
 
   const stage = make('div', 'fs-stage')
   const host = make('div', 'fs-book-host')
@@ -338,7 +390,8 @@ export function mountPublication(root, data, options) {
 
   const pageElements = pages.map((page, index) => {
     const el = make('div', 'fs-page fs-book-page', { 'data-page-index': String(index), 'data-page-id': page.id })
-    if (page.background) el.append(make('img', 'fs-page-bg', { src: page.background, alt: page.name || 'Page ' + (index + 1), draggable: 'false' }))
+    // Page images load lazily (only pages near the one being read), so a 250-page catalogue opens instantly.
+    if (page.background) el.append(make('img', 'fs-page-bg', { alt: page.name || 'Page ' + (index + 1), draggable: 'false', decoding: 'async' }))
     else el.append(make('div', 'fs-page-blank'))
     if (page.text && page.text.length) el.append(buildTextLayer(page, index))
     ;(page.overlays || []).forEach((overlay) => {
@@ -347,6 +400,24 @@ export function mountPublication(root, data, options) {
     })
     return el
   })
+
+  const pageImages = pageElements.map((el) => el.querySelector('img.fs-page-bg'))
+  const LOAD_BEHIND = 3
+  const LOAD_AHEAD = 6
+  const KEEP = 14
+  const loadPageImages = (around) => {
+    const centre = typeof around === 'number' ? around : currentPage
+    pageImages.forEach((img, index) => {
+      if (!img) return
+      const distance = index - centre
+      if (distance >= -LOAD_BEHIND && distance <= LOAD_AHEAD) {
+        if (img.getAttribute('src') !== pages[index].background) img.setAttribute('src', pages[index].background)
+      } else if (Math.abs(distance) > KEEP && img.hasAttribute('src')) {
+        img.removeAttribute('src')
+      }
+    })
+  }
+  loadPageImages(currentPage)
 
   // ---------- animation ----------
   const renderAnimations = (time, state) => {
@@ -402,6 +473,8 @@ export function mountPublication(root, data, options) {
   }
   const onPageOpened = () => {
     updateCount()
+    loadPageImages()
+    if (thumbsPanel) markThumbs()
     if (hasText) win.requestAnimationFrame(fitVisibleText)
     if (opts.onPageChange) opts.onPageChange(currentPage)
     if (animations.length && data.restartAnimationsOnPageTurn !== false) clock.restart()
@@ -432,7 +505,7 @@ export function mountPublication(root, data, options) {
     const spreadRatio = portrait ? ratio : ratio * 2
     let width = Math.min(size.width, size.height * spreadRatio)
     if (!width || width < 40) width = Math.max(40, size.width)
-    if (book && bookPortrait === portrait && bookMouse === !selectMode) {
+    if (book && bookPortrait === portrait && bookMouse === mouseFlipping()) {
       host.firstElementChild.style.width = Math.floor(width) + 'px'
       book.update()
       return
@@ -477,18 +550,18 @@ export function mountPublication(root, data, options) {
       usePortrait: portrait,
       autoSize: true,
       showCover: pages.length > 2,
-      drawShadow: true,
-      maxShadowOpacity: 0.45,
-      flippingTime: 700,
+      drawShadow: flip.shadow > 0,
+      maxShadowOpacity: Math.max(0.01, flip.shadow),
+      flippingTime: flip.time,
       startPage: currentPage,
       mobileScrollSupport: false,
       clickEventForward: true,
       disableFlipByClick: true,
       // While selecting text, dragging must select instead of turning the page.
-      useMouseEvents: !selectMode,
-      showPageCorners: true,
+      useMouseEvents: mouseFlipping(),
+      showPageCorners: flip.corners,
     })
-    bookMouse = !selectMode
+    bookMouse = mouseFlipping()
     mount.style.minWidth = '0'
     mount.style.minHeight = '0'
     try {
@@ -506,6 +579,19 @@ export function mountPublication(root, data, options) {
       mount.style.minHeight = '0'
       if (typeof instance.update === 'function') instance.update()
     }
+    // StPageFlip always makes the cover a stiff board; "soft" lets it bend like the inner pages.
+    if (flip.cover === 'soft' && typeof instance.getPage === 'function') {
+      try {
+        const count = typeof instance.getPageCount === 'function' ? instance.getPageCount() : pages.length
+        ;[0, count - 1].forEach((index) => {
+          const page = instance.getPage(index)
+          if (page && typeof page.setDensity === 'function') page.setDensity('soft')
+        })
+      } catch (error) { void error }
+    }
+    instance.on('changeState', (event) => {
+      if (event && event.data === 'flipping') sound.play()
+    })
     instance.on('flip', (event) => {
       currentPage = Number(event.data) || 0
       onPageOpened()
@@ -522,12 +608,14 @@ export function mountPublication(root, data, options) {
     const next = Math.min(pages.length - 1, Math.max(0, currentPage + direction))
     if (next === currentPage) return
     currentPage = next
+    sound.play()
     layoutFallback()
     onPageOpened()
   }
   /** Opens a page by index (used by "go to page" links). */
   const openPage = (index) => {
     const target = Math.min(pages.length - 1, Math.max(0, index))
+    loadPageImages(target)
     if (book) {
       if (typeof book.flip === 'function') book.flip(target)
       else book.turnToPage(target)
@@ -543,7 +631,8 @@ export function mountPublication(root, data, options) {
     selectMode = !!on
     root.classList.toggle('fs-selecting', selectMode)
     selectButton.setAttribute('aria-pressed', String(selectMode))
-    selectButton.textContent = selectMode ? 'Done selecting' : 'Select text'
+    setIcon(selectButton, 'select', selectMode ? 'Done selecting' : 'Select text')
+    if (selectMode && zoom !== 1) setZoom(1)
     if (!selectMode && win.getSelection) {
       const selection = win.getSelection()
       if (selection && selection.removeAllRanges) selection.removeAllRanges()
@@ -552,6 +641,153 @@ export function mountPublication(root, data, options) {
     win.requestAnimationFrame(fitVisibleText)
   }
   listen(selectButton, 'click', () => setSelectMode(!selectMode))
+
+  // ---------- zoom ----------
+  const clampPan = () => {
+    const rect = stage.getBoundingClientRect()
+    const maxX = ((zoom - 1) * rect.width) / 2
+    const maxY = ((zoom - 1) * rect.height) / 2
+    panX = Math.max(-maxX, Math.min(maxX, panX))
+    panY = Math.max(-maxY, Math.min(maxY, panY))
+  }
+  const applyZoom = () => {
+    clampPan()
+    host.style.transform = zoom === 1 ? '' : 'translate(' + Math.round(panX) + 'px, ' + Math.round(panY) + 'px) scale(' + zoom + ')'
+    root.classList.toggle('fs-zoomed', zoom > 1)
+    zoomButton.setAttribute('aria-pressed', String(zoom > 1))
+    const last = zoom >= ZOOMS[ZOOMS.length - 1]
+    setIcon(zoomButton, last ? 'zoomOut' : 'zoom', last ? 'Zoom out' : 'Zoom in')
+  }
+  /** Zooms to `level`, keeping the point (clientX, clientY) under the pointer. */
+  const setZoom = (level, clientX, clientY) => {
+    const previous = zoom
+    const next = Math.max(1, Math.min(ZOOMS[ZOOMS.length - 1], level))
+    if (next === previous) return
+    if (next > 1 && selectMode) setSelectMode(false)
+    const rect = stage.getBoundingClientRect()
+    const px = (typeof clientX === 'number' ? clientX : rect.left + rect.width / 2) - (rect.left + rect.width / 2)
+    const py = (typeof clientY === 'number' ? clientY : rect.top + rect.height / 2) - (rect.top + rect.height / 2)
+    if (next === 1) {
+      panX = 0
+      panY = 0
+    } else {
+      panX = px - (px - panX) * (next / previous)
+      panY = py - (py - panY) * (next / previous)
+    }
+    const flipModeChanged = (previous === 1) !== (next === 1)
+    zoom = next
+    applyZoom()
+    // Dragging pans the zoomed page instead of turning it.
+    if (flipModeChanged && book) buildBook()
+  }
+  listen(zoomButton, 'click', () => {
+    const index = ZOOMS.indexOf(zoom)
+    setZoom(index >= 0 && index < ZOOMS.length - 1 ? ZOOMS[index + 1] : 1)
+  })
+  listen(stage, 'dblclick', (event) => {
+    if (selectMode || (event.target && event.target.closest && event.target.closest('.fs-overlay, .fs-search, .fs-thumbs, .fs-popup-backdrop'))) return
+    event.preventDefault()
+    setZoom(zoom === 1 ? 2 : 1, event.clientX, event.clientY)
+  })
+  listen(stage, 'wheel', (event) => {
+    if (!(event.ctrlKey || event.metaKey)) return
+    event.preventDefault()
+    setZoom(zoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15), event.clientX, event.clientY)
+  }, { passive: false })
+  let panStart = null
+  listen(stage, 'pointerdown', (event) => {
+    if (zoom === 1 || selectMode || event.button !== 0) return
+    if (event.target && event.target.closest && event.target.closest('.fs-overlay, .fs-search, .fs-thumbs, button, a')) return
+    panStart = { x: event.clientX, y: event.clientY, panX, panY, id: event.pointerId }
+    root.classList.add('fs-panning')
+    if (stage.setPointerCapture) { try { stage.setPointerCapture(event.pointerId) } catch (error) { void error } }
+  })
+  listen(stage, 'pointermove', (event) => {
+    if (!panStart || event.pointerId !== panStart.id) return
+    panX = panStart.panX + (event.clientX - panStart.x)
+    panY = panStart.panY + (event.clientY - panStart.y)
+    applyZoom()
+  })
+  const endPan = () => {
+    panStart = null
+    root.classList.remove('fs-panning')
+  }
+  listen(stage, 'pointerup', endPan)
+  listen(stage, 'pointercancel', endPan)
+
+  // ---------- page-turn sound ----------
+  listen(soundButton, 'click', () => {
+    sound.setMuted(!sound.muted)
+    try { if (storage) storage.setItem('fs-sound-muted', sound.muted ? '1' : '0') } catch (error) { void error }
+    setIcon(soundButton, sound.muted ? 'muted' : 'sound', sound.muted ? 'Turn page sound on' : 'Mute page sound')
+    soundButton.setAttribute('aria-pressed', String(!sound.muted))
+  })
+
+  // ---------- all pages (thumbnails) and go to page ----------
+  let thumbsPanel = null
+  let thumbButtons = []
+  const markThumbs = () => {
+    const visible = visiblePages()
+    thumbButtons.forEach((button, index) => button.classList.toggle('is-current', visible.indexOf(index) >= 0))
+  }
+  const closeThumbs = () => {
+    if (!thumbsPanel) return
+    thumbsPanel.remove()
+    thumbsPanel = null
+    thumbButtons = []
+    thumbsButton.setAttribute('aria-expanded', 'false')
+  }
+  const openThumbs = () => {
+    if (thumbsPanel) { closeThumbs(); return }
+    const panel = make('div', 'fs-thumbs', { role: 'dialog', 'aria-label': 'All pages' })
+    const head = make('div', 'fs-thumbs-head')
+    const title = make('strong')
+    title.textContent = pages.length + ' pages'
+    const form = make('form', 'fs-thumbs-go')
+    const input = make('input', '', { type: 'number', min: '1', max: String(pages.length), placeholder: 'Page', 'aria-label': 'Go to page number' })
+    const go = make('button', 'fs-reader-btn', { type: 'submit' })
+    go.textContent = 'Go'
+    form.append(input, go)
+    form.addEventListener('submit', (event) => {
+      event.preventDefault()
+      const number = Math.floor(Number(input.value))
+      if (number >= 1 && number <= pages.length) {
+        closeThumbs()
+        if (zoom !== 1) setZoom(1)
+        openPage(number - 1)
+      }
+    })
+    const close = make('button', 'fs-search-close', { type: 'button', 'aria-label': 'Close pages' })
+    close.textContent = '\u00d7'
+    close.addEventListener('click', closeThumbs)
+    head.append(title, form, close)
+    const grid = make('div', 'fs-thumbs-grid')
+    thumbButtons = pages.map((page, index) => {
+      const button = make('button', 'fs-thumb', { type: 'button', 'aria-label': 'Page ' + (index + 1) })
+      const src = page.thumb || page.background
+      if (src) button.append(make('img', '', { src, alt: '', loading: 'lazy', decoding: 'async' }))
+      else button.append(make('span', 'fs-thumb-blank'))
+      const label = make('span', 'fs-thumb-label')
+      label.textContent = String(index + 1)
+      button.append(label)
+      button.addEventListener('click', () => {
+        closeThumbs()
+        if (zoom !== 1) setZoom(1)
+        openPage(index)
+      })
+      grid.append(button)
+      return button
+    })
+    panel.append(head, grid)
+    stage.append(panel)
+    thumbsPanel = panel
+    thumbsButton.setAttribute('aria-expanded', 'true')
+    markThumbs()
+    const current = thumbButtons[currentPage]
+    if (current && current.scrollIntoView) current.scrollIntoView({ block: 'center' })
+    input.focus()
+  }
+  listen(thumbsButton, 'click', openThumbs)
 
   let searchPanel = null
   const clearHits = () => {
@@ -662,13 +898,17 @@ export function mountPublication(root, data, options) {
       closePopup()
       return
     }
-    if (event.key === 'Escape' && (searchPanel || selectMode)) {
+    if (event.key === 'Escape' && (searchPanel || selectMode || thumbsPanel || zoom !== 1)) {
       event.preventDefault()
       event.stopPropagation()
-      if (searchPanel) closeSearch()
+      if (thumbsPanel) closeThumbs()
+      else if (searchPanel) closeSearch()
+      else if (zoom !== 1) setZoom(1)
       else setSelectMode(false)
       return
     }
+    if (event.key === 'Home') { openPage(0); return }
+    if (event.key === 'End') { openPage(pages.length - 1); return }
     if (textTools && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
       event.preventDefault()
       openSearch()
@@ -707,6 +947,9 @@ export function mountPublication(root, data, options) {
     get book() { return book },
     get selecting() { return selectMode },
     setSelectMode,
+    setZoom,
+    get zoom() { return zoom },
+    get sound() { return sound },
     search(query) { return findMatches(String(query || '')).map((match) => ({ page: match.page, start: match.start, end: match.end })) },
     goToPage(index) {
       const target = Math.min(pages.length - 1, Math.max(0, index))
@@ -720,6 +963,8 @@ export function mountPublication(root, data, options) {
       destroyed = true
       closePopup()
       closeSearch()
+      closeThumbs()
+      sound.destroy()
       clock.destroy()
       controllers.forEach((controller) => controller.destroy())
       if (resizeFrame) win.cancelAnimationFrame(resizeFrame)
@@ -729,9 +974,8 @@ export function mountPublication(root, data, options) {
       }
       book = null
       root.replaceChildren()
-      root.classList.remove('fs-reader', 'fs-selecting')
-      root.style.removeProperty('--fs-reader-bg')
-      root.style.removeProperty('--fs-reader-bar')
+      root.classList.remove('fs-reader', 'fs-selecting', 'fs-zoomed', 'fs-no-book-shadow')
+      Object.keys(themeVars).forEach((key) => root.style.removeProperty(key))
     },
   }
 }

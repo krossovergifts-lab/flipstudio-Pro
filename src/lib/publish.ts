@@ -19,6 +19,15 @@ export interface PublishSettings {
   siteUrl: string
   /** Title of the online bookshelf (the site home page). */
   siteTitle: string
+  /** Identifies this website among several (set when saved). */
+  id?: string
+  /** Name shown in the website list, e.g. "Catalogue 2027 site". */
+  label?: string
+  /**
+   * 'shelf': many publications, each at <site>/<link-name>/, plus a bookshelf home page.
+   * 'single': one publication IS the website (opens at <site>/) — for a brand-free catalogue address.
+   */
+  layout?: 'shelf' | 'single'
 }
 
 export interface CatalogEntry {
@@ -49,24 +58,66 @@ export const EMPTY_SETTINGS: PublishSettings = { owner: '', repo: '', branch: 'm
 // Settings (kept on this computer only, never in projects or exports)
 // ---------------------------------------------------------------------------
 
-export function loadPublishSettings(): PublishSettings | null {
-  try {
-    const raw = window.localStorage.getItem(SETTINGS_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<PublishSettings>
-    return { ...EMPTY_SETTINGS, ...parsed }
-  } catch {
-    return null
-  }
+const SITES_KEY = 'flipstudio.publish.sites.v1'
+
+function siteId(): string {
+  return `site-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
 }
 
-export function savePublishSettings(settings: PublishSettings | null): void {
+/** Every website this computer can publish to (oldest first). Migrates the single-site setting of v1.2. */
+export function loadSites(): PublishSettings[] {
   try {
-    if (settings) window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
-    else window.localStorage.removeItem(SETTINGS_KEY)
+    const raw = window.localStorage.getItem(SITES_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<PublishSettings>[]
+      if (Array.isArray(parsed)) return parsed.map((site) => ({ ...EMPTY_SETTINGS, layout: 'shelf' as const, ...site, id: site.id || siteId() }))
+    }
+    const legacy = window.localStorage.getItem(SETTINGS_KEY)
+    if (legacy) {
+      const site: PublishSettings = { ...EMPTY_SETTINGS, ...(JSON.parse(legacy) as Partial<PublishSettings>), layout: 'shelf', id: 'site-main' }
+      window.localStorage.setItem(SITES_KEY, JSON.stringify([site]))
+      return [site]
+    }
+  } catch {
+    // Unreadable storage: start without websites.
+  }
+  return []
+}
+
+export function saveSites(sites: PublishSettings[]): void {
+  try {
+    window.localStorage.setItem(SITES_KEY, JSON.stringify(sites))
   } catch {
     // Storage can be unavailable (private mode); settings then last for this session only.
   }
+}
+
+/** Adds or replaces a website (matched by id); returns it with its id. */
+export function upsertSite(site: PublishSettings): PublishSettings {
+  const saved = { ...site, id: site.id || siteId() }
+  const sites = loadSites()
+  const index = sites.findIndex((candidate) => candidate.id === saved.id)
+  if (index >= 0) sites[index] = saved
+  else sites.push(saved)
+  saveSites(sites)
+  return saved
+}
+
+export function removeSite(id: string): void {
+  saveSites(loadSites().filter((site) => site.id !== id))
+}
+
+export function siteLabel(site: PublishSettings): string {
+  return site.label?.trim() || normalizeSiteUrl(site.siteUrl).replace(/^https?:\/\//, '') || `${site.owner}/${site.repo}`
+}
+
+/** First website (kept for callers of v1.2). */
+export function loadPublishSettings(): PublishSettings | null {
+  return loadSites()[0] ?? null
+}
+
+export function savePublishSettings(settings: PublishSettings | null): void {
+  if (settings) upsertSite(settings)
 }
 
 export function settingsComplete(settings: PublishSettings | null): settings is PublishSettings {
@@ -107,9 +158,13 @@ export function validateSlug(slug: string): string {
   return ''
 }
 
-export function bookUrl(settings: Pick<PublishSettings, 'siteUrl'>, slug: string): string {
+export function bookUrl(settings: Pick<PublishSettings, 'siteUrl' | 'layout'>, slug: string): string {
+  if (settings.layout === 'single') return `${normalizeSiteUrl(settings.siteUrl)}/`
   return `${normalizeSiteUrl(settings.siteUrl)}/${slug}/`
 }
+
+/** Files that belong to the repository itself, never to a publication. */
+const REPO_FILES = /^(README\.md|LICENSE(\..*)?|\.github\/.*|\.gitignore|CNAME|_headers|_redirects)$/i
 
 // ---------------------------------------------------------------------------
 // GitHub API
@@ -183,6 +238,14 @@ export class GitHubRepo {
     const { data } = await this.request<{ private: boolean; default_branch: string; html_url: string; permissions?: { push?: boolean } }>('GET', '')
     if (data.permissions && data.permissions.push === false) {
       throw new PublishError('The token can read this repository but not write to it. Give it “Contents: Read and write” permission.')
+    }
+    // Reading works for any key on a public repository, so also try a harmless write (an unreferenced blob).
+    try {
+      await this.createBlob(new TextEncoder().encode('FlipStudio Pro connection check\n'))
+    } catch (error) {
+      if (!(error instanceof PublishError) || error.status !== 409) {
+        throw new PublishError(`The key can see ${this.settings.owner}/${this.settings.repo} but is not allowed to change it. On GitHub, edit the key: Repository access must include this repository and Permissions → Contents must be “Read and write”.`, error instanceof PublishError ? error.status : undefined)
+      }
     }
     return { private: Boolean(data.private), defaultBranch: data.default_branch || 'main', htmlUrl: data.html_url }
   }
@@ -476,7 +539,16 @@ async function readCatalog(repo: GitHubRepo, rootEntries: TreeEntry[], title: st
   return { version: 1, title, books: [] }
 }
 
-async function existingFolder(repo: GitHubRepo, rootEntries: TreeEntry[], slug: string): Promise<Map<string, string>> {
+async function existingFolder(repo: GitHubRepo, rootEntries: TreeEntry[], slug: string, rootTree?: string): Promise<Map<string, string>> {
+  if (!slug) {
+    // Single-publication site: the publication is everything except the repository's own files.
+    const files = new Map<string, string>()
+    if (!rootTree) return files
+    const { entries, truncated } = await repo.tree(rootTree, true)
+    if (truncated) throw new PublishError('The website repository has too many files to update safely. Use an empty repository for this catalogue.')
+    for (const entry of entries) if (entry.type === 'blob' && entry.sha && !REPO_FILES.test(entry.path)) files.set(entry.path, entry.sha)
+    return files
+  }
   const folder = rootEntries.find((entry) => entry.path === slug && entry.type === 'tree')
   const files = new Map<string, string>()
   if (!folder?.sha) return files
@@ -488,6 +560,9 @@ async function existingFolder(repo: GitHubRepo, rootEntries: TreeEntry[], slug: 
 
 function siteFiles(catalog: Catalog, settings: PublishSettings): TreeEntry[] {
   const text = (path: string, content: string) => ({ path, mode: '100644', type: 'blob' as const, content }) as unknown as TreeEntry
+  if (settings.layout === 'single') {
+    return [text('404.html', NOT_FOUND_HTML.replace('__HOME__', escapeHtml(`${normalizeSiteUrl(settings.siteUrl)}/`)).replace('See all publications', 'Open the catalogue')), text('.nojekyll', '')]
+  }
   return [
     text('catalog.json', JSON.stringify(catalog, null, 2) + '\n'),
     text('index.html', buildSiteIndexHtml(catalog, settings.siteUrl)),
@@ -502,12 +577,13 @@ function siteFiles(catalog: Catalog, settings: PublishSettings): TreeEntry[] {
  * refreshes the site home page. Unchanged files are not uploaded again.
  */
 export async function publishBook(settings: PublishSettings, project: ProjectState, options: PublishOptions): Promise<PublishResult> {
-  const slugError = validateSlug(options.slug)
+  const single = settings.layout === 'single'
+  const slugError = single ? '' : validateSlug(options.slug)
   if (slugError) throw new PublishError(slugError)
   if (!settingsComplete(settings)) throw new PublishError('Publishing is not set up yet. Fill in the GitHub and website details first.')
   const progress = options.onProgress ?? (() => undefined)
   const repo = new GitHubRepo(settings, options.fetchImpl, options.apiBase)
-  const slug = options.slug
+  const slug = single ? '' : options.slug
   const url = bookUrl(settings, slug)
 
   progress('Preparing pages and images…')
@@ -528,7 +604,7 @@ export async function publishBook(settings: PublishSettings, project: ProjectSta
     : files.find((file) => file.path.startsWith('pages/page-001.'))
   if (coverFile) files.push({ path: 'cover.jpg', data: coverFile.data })
 
-  const bytes = files.map((file) => ({ path: `${slug}/${file.path}`, bytes: toBytes(file.data) }))
+  const bytes = files.map((file) => ({ path: slug ? `${slug}/${file.path}` : file.path, bytes: toBytes(file.data) }))
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await commitPublication(repo, settings, project, slug, url, bytes, progress)
@@ -552,7 +628,7 @@ async function commitPublication(
   progress('Connecting to GitHub…')
   const head = await repo.head()
   const root = await repo.tree(head.tree)
-  const previous = await existingFolder(repo, root.entries, slug)
+  const previous = await existingFolder(repo, root.entries, slug, head.tree)
   const catalog = await readCatalog(repo, root.entries, settings.siteTitle)
 
   let done = 0
@@ -571,7 +647,8 @@ async function commitPublication(
     progress(`Uploading files… ${done} of ${wanted.length}`, done, wanted.length)
     return { path: file.path, mode: '100644', type: 'blob', sha }
   })
-  const keep = new Set(wanted.map((file) => file.path))
+  const site = siteFiles(catalog, settings)
+  const keep = new Set([...wanted.map((file) => file.path), ...site.map((file) => file.path)])
   const removed = [...previous.keys()].filter((path) => !keep.has(path))
   for (const path of removed) entries.push({ path, mode: '100644', type: 'blob', sha: null })
 
@@ -585,7 +662,7 @@ async function commitPublication(
     updatedAt: new Date().toISOString(),
   }
   catalog.books = [entry, ...catalog.books.filter((book) => book.slug !== slug)]
-  entries.push(...siteFiles(catalog, settings))
+  entries.push(...(settings.layout === 'single' ? site : siteFiles(catalog, settings)))
 
   progress('Saving the new version online…')
   const commit = await repo.commitTree(head, entries, `${previous.size ? 'Update' : 'Publish'} “${project.title}”`)
@@ -600,13 +677,16 @@ export async function unpublishBook(settings: PublishSettings, slug: string, opt
   options.onProgress?.('Connecting to GitHub…')
   const head = await repo.head()
   const root = await repo.tree(head.tree)
-  const previous = await existingFolder(repo, root.entries, slug)
+  const single = settings.layout === 'single'
+  const previous = await existingFolder(repo, root.entries, single ? '' : slug, head.tree)
   const catalog = await readCatalog(repo, root.entries, settings.siteTitle)
   catalog.books = catalog.books.filter((book) => book.slug !== slug)
-  const entries: TreeEntry[] = [...previous.keys()].map((path) => ({ path, mode: '100644', type: 'blob', sha: null }))
-  entries.push(...siteFiles(catalog, settings))
+  const site = single ? [] : siteFiles(catalog, settings)
+  const keep = new Set(site.map((file) => file.path))
+  const entries: TreeEntry[] = [...previous.keys()].filter((path) => !keep.has(path)).map((path) => ({ path, mode: '100644', type: 'blob', sha: null }))
+  entries.push(...site)
   options.onProgress?.('Removing it from the website…')
-  const commit = await repo.commitTree(head, entries, `Unpublish ${slug}`)
+  const commit = await repo.commitTree(head, entries, `Unpublish ${slug || 'catalogue'}`)
   return { commit, removed: previous.size }
 }
 
@@ -631,8 +711,13 @@ export function whatsappShareUrl(title: string, url: string): string {
 export const DEFAULT_SITE_REPO = 'flipbooks'
 
 /** github.com/new pre-filled for the website repository. */
-export function newRepoUrl(repo = DEFAULT_SITE_REPO): string {
-  return `https://github.com/new?name=${encodeURIComponent(repo)}&visibility=public&description=${encodeURIComponent('Online flipbooks published with FlipStudio Pro')}`
+export function newRepoUrl(repo = DEFAULT_SITE_REPO, visibility: 'public' | 'private' = 'public'): string {
+  return `https://github.com/new?name=${encodeURIComponent(repo)}&visibility=${visibility}&description=${encodeURIComponent('Online flipbooks published with FlipStudio Pro')}`
+}
+
+/** A Cloudflare Pages project name (it becomes <name>.pages.dev): lowercase letters, digits and dashes, max 58. */
+export function pagesProjectName(value: string): string {
+  return slugify(value).slice(0, 58).replace(/-+$/g, '')
 }
 
 /** Fine-grained token page pre-filled with exactly the permissions publishing needs. */

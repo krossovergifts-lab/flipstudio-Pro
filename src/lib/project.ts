@@ -14,6 +14,7 @@ import {
   type EngineAnimation,
 } from '../runtime/engine.js'
 import stylesSource from '../runtime/styles.js?raw'
+import themeSource from '../runtime/theme.js?raw'
 import type { PublicationData, PublicationOverlay } from '../runtime/reader.js'
 import type { HoverEffect, IdleEffect, LinkAction, ObjectStyle } from '../runtime/styles.js'
 import { allFonts, findFont, fontFaceCss, type FontDefinition, type ProjectFont } from './fonts'
@@ -121,6 +122,8 @@ export interface PageDefinition {
   overlays: OverlayObject[]
   pdfPageNumber?: number
   previewUrl?: string
+  /** Small JPEG (about 240 px wide) for page lists and the reader's thumbnails. */
+  thumbUrl?: string
   /** Text kept from the PDF (page units, top-left origin) for selection, copy and search. */
   text?: PageTextItem[]
 }
@@ -138,13 +141,36 @@ export interface PageTextItem {
 }
 
 /** Reader options a publisher picks per book (PubHTML5-style "Book info" / "Theme"). */
+export type FlipPreset = 'smooth' | 'magazine' | 'hardcover' | 'quick'
+export type FlipSoundKind = 'none' | 'paper' | 'soft' | 'crisp' | 'custom'
+
+/** Reader look and feel a publisher picks per book (theme editor). */
 export interface ReaderSettings {
   /** Show the text-select / search tools when the book has a text layer. */
   textTools?: boolean
-  /** Reader background colour. */
+  backgroundMode?: 'solid' | 'gradient' | 'image'
+  /** Main background colour (and gradient start). */
   background?: string
-  /** Toolbar colour. */
+  backgroundTo?: string
+  backgroundAngle?: number
+  backgroundImageAssetId?: string
+  /** Toolbar background, text/icon colour, button colour and accent. */
   toolbar?: string
+  toolbarText?: string
+  button?: string
+  accent?: string
+  /** Page-turn feel. */
+  flip?: FlipPreset
+  /** Page-turn duration in ms (overrides the preset). */
+  flipSpeed?: number
+  cover?: 'soft' | 'hard'
+  pageShadow?: boolean
+  bookShadow?: boolean
+  sound?: FlipSoundKind
+  soundAssetId?: string
+  thumbnails?: boolean
+  logoAssetId?: string
+  logoLink?: string
 }
 
 export interface ProjectState {
@@ -252,8 +278,9 @@ export function findMissingAssets(project: ProjectState): string[] {
   return [...referencedAssetIds(project)].filter((id) => !project.assets[id])
 }
 
-export function referencedAssetIds(project: Pick<ProjectState, 'pages' | 'fonts'>): Set<string> {
+export function referencedAssetIds(project: Pick<ProjectState, 'pages' | 'fonts'> & { reader?: ReaderSettings }): Set<string> {
   const used = new Set<string>()
+  for (const id of [project.reader?.backgroundImageAssetId, project.reader?.logoAssetId, project.reader?.soundAssetId]) if (id) used.add(id)
   for (const page of project.pages) {
     for (const overlay of page.overlays) {
       if (overlay.assetId) used.add(overlay.assetId)
@@ -389,6 +416,7 @@ export function createProject(input: ProjectInput = {}): ProjectState {
     height: Math.max(1, finite(page.height, 1400)),
     pdfPageNumber: page.pdfPageNumber,
     previewUrl: page.previewUrl,
+    ...(page.thumbUrl ? { thumbUrl: page.thumbUrl } : {}),
     ...(Array.isArray(page.text) && page.text.length ? { text: page.text.filter(validTextItem) } : {}),
     overlays: (page.overlays ?? []).map((overlay, overlayIndex) =>
       normalizeOverlay(overlay, `overlay-${pageIndex + 1}-${overlayIndex + 1}`),
@@ -621,10 +649,23 @@ export function usedFonts(project: ProjectState): FontDefinition[] {
   return [...used.values()]
 }
 
+/** Reader settings as the runtime needs them: asset references become URLs. */
+function readerData(reader: ReaderSettings | undefined, assetUrl: (assetId: string) => string): PublicationData['reader'] {
+  if (!reader) return undefined
+  const { backgroundImageAssetId, logoAssetId, soundAssetId, ...rest } = reader
+  return {
+    ...rest,
+    backgroundImage: backgroundImageAssetId ? assetUrl(backgroundImageAssetId) || undefined : undefined,
+    logo: logoAssetId ? assetUrl(logoAssetId) || undefined : undefined,
+    soundUrl: soundAssetId ? assetUrl(soundAssetId) || undefined : undefined,
+  }
+}
+
 export function buildPublicationData(
   project: ProjectState,
   assetUrl: (asset: ProjectAsset) => string = (asset) => asset.dataUrl,
   pageUrl: (page: PageDefinition) => string | null = (page) => page.previewUrl ?? null,
+  thumbUrl: (page: PageDefinition) => string | null = (page) => page.thumbUrl ?? null,
 ): PublicationData {
   const url = (ref: { assetId?: string; src?: string }): string => {
     if (ref.assetId) {
@@ -636,7 +677,7 @@ export function buildPublicationData(
   const fonts = projectFonts(project)
   return {
     title: project.title,
-    reader: project.reader ? { ...project.reader } : undefined,
+    reader: readerData(project.reader, (assetId) => url({ assetId })),
     animations: project.animations.map((animation) => ({ ...animation })),
     pages: project.pages.map((page) => ({
       id: page.id,
@@ -644,6 +685,7 @@ export function buildPublicationData(
       width: page.width,
       height: page.height,
       background: pageUrl(page),
+      thumb: thumbUrl(page) ?? undefined,
       text: page.text,
       overlays: page.overlays.filter((overlay) => overlay.visible).map((overlay): PublicationOverlay => ({
         id: overlay.id,
@@ -705,7 +747,7 @@ function moduleToScript(source: string): string {
   return source.replace(/^import\s.*$/gm, '').replace(/^export\s+/gm, '')
 }
 
-export const RUNTIME_SCRIPT = moduleToScript(engineSource) + '\n' + moduleToScript(stylesSource) + '\n' + moduleToScript(readerSource)
+export const RUNTIME_SCRIPT = moduleToScript(engineSource) + '\n' + moduleToScript(stylesSource) + '\n' + moduleToScript(themeSource) + '\n' + moduleToScript(readerSource)
 
 const PAGE_FLIP_NOTICE = 'StPageFlip (page-flip) 2.0.7 - Copyright (c) 2020 Nodlik - MIT License'
 
@@ -748,7 +790,7 @@ function metaTags(data: PublicationData, meta?: PublicationMeta): string {
 }
 
 export function buildPublicationHtml(data: PublicationData, fontCss = '', meta?: PublicationMeta): string {
-  const background = /^#[0-9a-f]{3,8}$/i.test(data.reader?.background ?? '') ? data.reader!.background : '#0b1220'
+  const background = /^#[0-9a-f]{3,8}$/i.test(data.reader?.background ?? '') ? data.reader!.background! : '#0b1220'
   const json = JSON.stringify(data)
     .replace(/</g, '\\u003c')
     .replace(new RegExp(String.fromCharCode(0x2028), 'g'), '\\u2028')
@@ -905,6 +947,7 @@ export async function buildPublicationFiles(
     assetPaths.set(asset.id, path)
   }
   const pagePaths = new Map<string, string>()
+  const thumbPaths = new Map<string, string>()
   embedded.pages.forEach((page, index) => {
     if (!page.previewUrl) return
     if (page.previewUrl.startsWith('data:')) {
@@ -912,11 +955,17 @@ export async function buildPublicationFiles(
       files.push({ path, data: dataUrlToBytes(page.previewUrl) })
       pagePaths.set(page.id, path)
     }
+    if (page.thumbUrl?.startsWith('data:')) {
+      const path = `pages/thumb-${String(index + 1).padStart(3, '0')}.${EXTENSIONS[mimeTypeOfDataUrl(page.thumbUrl)] ?? 'jpg'}`
+      files.push({ path, data: dataUrlToBytes(page.thumbUrl) })
+      thumbPaths.set(page.id, path)
+    }
   })
   const data = buildPublicationData(
     embedded,
     (asset) => assetPaths.get(asset.id) ?? asset.dataUrl,
     (page) => pagePaths.get(page.id) ?? page.previewUrl ?? null,
+    (page) => thumbPaths.get(page.id) ?? page.thumbUrl ?? null,
   )
   files.unshift({ path: 'index.html', data: buildPublicationHtml(data, fontCss, options.meta) })
   return { files, project: embedded }

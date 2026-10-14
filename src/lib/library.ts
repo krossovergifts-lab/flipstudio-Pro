@@ -27,6 +27,8 @@ export interface PublishedInfo {
   slug: string
   url: string
   publishedAt: string
+  /** Which website (publishing settings) it is on. */
+  siteId?: string
 }
 
 export interface LibraryFolder {
@@ -50,6 +52,101 @@ export interface LibraryStore {
   writeProject(id: string, json: string): Promise<void>
   deleteProject(id: string): Promise<void>
   listProjectIds(): Promise<string[]>
+  /** Large embedded files (page images, photos, fonts) are kept beside the project, content-addressed by key. */
+  readBlob(bookId: string, key: string): Promise<string | null>
+  writeBlob(bookId: string, key: string, dataUrl: string): Promise<void>
+  listBlobs(bookId: string): Promise<string[]>
+  deleteBlob(bookId: string, key: string): Promise<void>
+}
+
+// ---------------------------------------------------------------------------
+// Blobs: large data URLs are stored as separate files, so a 250-page catalogue
+// saves in a moment (only new or changed images are written) and the project
+// JSON stays small.
+// ---------------------------------------------------------------------------
+
+export const BLOB_PREFIX = 'flipstudio-blob:'
+const BLOB_MIN = 2048
+
+/** Content key for a data URL: hash + length + extension, e.g. "1a2b3c4d-523441.jpg". */
+export function blobKey(dataUrl: string): string {
+  const mime = /^data:([^;,]+)/.exec(dataUrl)?.[1] ?? 'application/octet-stream'
+  const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg', 'font/woff2': 'woff2', 'font/woff': 'woff', 'font/ttf': 'ttf', 'font/otf': 'otf', 'video/mp4': 'mp4', 'audio/mpeg': 'mp3' } as Record<string, string>)[mime] ?? 'bin'
+  return `${hashString(dataUrl)}-${dataUrl.length}.${ext}`
+}
+
+const keyCache = new Map<string, string>()
+function cachedKey(dataUrl: string): string {
+  let key = keyCache.get(dataUrl)
+  if (!key) {
+    key = blobKey(dataUrl)
+    keyCache.set(dataUrl, key)
+  }
+  return key
+}
+
+/** Replaces large data URLs in a JSON string with blob references; returns the blobs to store. */
+export function externalize(json: string): { json: string; blobs: Map<string, string> } {
+  const blobs = new Map<string, string>()
+  const data = JSON.parse(json, (_key, value: unknown) => {
+    if (typeof value === 'string' && value.length >= BLOB_MIN && value.startsWith('data:')) {
+      const key = cachedKey(value)
+      blobs.set(key, value)
+      return BLOB_PREFIX + key
+    }
+    return value
+  })
+  return { json: JSON.stringify(data, null, 1), blobs }
+}
+
+export function blobRefs(json: string): Set<string> {
+  const refs = new Set<string>()
+  const pattern = /flipstudio-blob:([A-Za-z0-9.-]+)/g
+  for (const match of json.matchAll(pattern)) refs.add(match[1])
+  return refs
+}
+
+/** Puts the stored data URLs back in place of blob references. */
+export async function internalize(json: string, read: (key: string) => Promise<string | null>): Promise<string> {
+  const keys = [...blobRefs(json)]
+  const values = new Map<string, string>()
+  await Promise.all(keys.map(async (key) => {
+    const value = await read(key)
+    if (value) {
+      values.set(key, value)
+      keyCache.set(value, key)
+    }
+  }))
+  const data = JSON.parse(json, (_key, value: unknown) => {
+    if (typeof value === 'string' && value.startsWith(BLOB_PREFIX)) {
+      const found = values.get(value.slice(BLOB_PREFIX.length))
+      if (found === undefined) return ''
+      return found
+    }
+    return value
+  })
+  return JSON.stringify(data)
+}
+
+function dataUrlBytes(dataUrl: string): Uint8Array {
+  const comma = dataUrl.indexOf(',')
+  const meta = dataUrl.slice(0, comma)
+  const body = dataUrl.slice(comma + 1)
+  if (!/;base64$/i.test(meta)) return new TextEncoder().encode(decodeURIComponent(body))
+  const binary = atob(body)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  return bytes
+}
+
+const MIME_BY_EXT: Record<string, string> = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml', woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf', mp4: 'video/mp4', mp3: 'audio/mpeg', bin: 'application/octet-stream' }
+
+function bytesToDataUrl(bytes: Uint8Array, key: string): string {
+  const ext = key.split('.').pop() ?? 'bin'
+  let binary = ''
+  const chunk = 0x8000
+  for (let index = 0; index < bytes.length; index += chunk) binary += String.fromCharCode(...bytes.subarray(index, index + chunk))
+  return `data:${MIME_BY_EXT[ext] ?? 'application/octet-stream'};base64,${btoa(binary)}`
 }
 
 export const CATEGORIES = ['Catalogue', 'Brochure', 'Price list', 'Lookbook', 'Magazine', 'Menu', 'Sales & Marketing', 'Report', 'Other']
@@ -75,8 +172,15 @@ export function createMemoryStore(): LibraryStore {
     writeIndex: async (json) => { files.set('index', json) },
     readProject: async (id) => files.get(`project:${id}`) ?? null,
     writeProject: async (id, json) => { files.set(`project:${id}`, json) },
-    deleteProject: async (id) => { files.delete(`project:${id}`) },
+    deleteProject: async (id) => {
+      files.delete(`project:${id}`)
+      for (const key of [...files.keys()]) if (key.startsWith(`blob:${id}:`)) files.delete(key)
+    },
     listProjectIds: async () => [...files.keys()].filter((key) => key.startsWith('project:')).map((key) => key.slice(8)),
+    readBlob: async (id, key) => files.get(`blob:${id}:${key}`) ?? null,
+    writeBlob: async (id, key, dataUrl) => { files.set(`blob:${id}:${key}`, dataUrl) },
+    listBlobs: async (id) => [...files.keys()].filter((key) => key.startsWith(`blob:${id}:`)).map((key) => key.slice(`blob:${id}:`.length)),
+    deleteBlob: async (id, key) => { files.delete(`blob:${id}:${key}`) },
   }
 }
 
@@ -106,8 +210,15 @@ export function createBrowserStore(): LibraryStore {
     writeIndex: async (json) => { await run('readwrite', (store) => store.put(json, 'index')) },
     readProject: async (id) => ((await run('readonly', (store) => store.get(`project:${id}`))) as string | undefined) ?? null,
     writeProject: async (id, json) => { await run('readwrite', (store) => store.put(json, `project:${id}`)) },
-    deleteProject: async (id) => { await run('readwrite', (store) => store.delete(`project:${id}`)) },
+    deleteProject: async (id) => {
+      await run('readwrite', (store) => store.delete(`project:${id}`))
+      await run('readwrite', (store) => store.delete(IDBKeyRange.bound(`blob:${id}:`, `blob:${id}:\uffff`)))
+    },
     listProjectIds: async () => ((await run('readonly', (store) => store.getAllKeys())) as IDBValidKey[]).map(String).filter((key) => key.startsWith('project:')).map((key) => key.slice(8)),
+    readBlob: async (id, key) => ((await run('readonly', (store) => store.get(`blob:${id}:${key}`))) as string | undefined) ?? null,
+    writeBlob: async (id, key, dataUrl) => { await run('readwrite', (store) => store.put(dataUrl, `blob:${id}:${key}`)) },
+    listBlobs: async (id) => ((await run('readonly', (store) => store.getAllKeys(IDBKeyRange.bound(`blob:${id}:`, `blob:${id}:\uffff`)))) as IDBValidKey[]).map(String).map((key) => key.slice(`blob:${id}:`.length)),
+    deleteBlob: async (id, key) => { await run('readwrite', (store) => store.delete(`blob:${id}:${key}`)) },
   }
 }
 
@@ -148,6 +259,8 @@ export function createDesktopStore(): LibraryStore {
     await fs.rename(temp, `${root}/${name}`, { oldPathBaseDir: baseDir, newPathBaseDir: baseDir })
   }
   const safeName = (id: string) => `${id.replace(/[^a-z0-9-]/gi, '')}.flipstudio.json`
+  const blobDir = (id: string) => `${id.replace(/[^a-z0-9-]/gi, '')}.files`
+  const safeKey = (key: string) => key.replace(/[^A-Za-z0-9.-]/g, '')
   return {
     kind: 'desktop',
     location: async () => {
@@ -163,6 +276,33 @@ export function createDesktopStore(): LibraryStore {
     deleteProject: async (id) => {
       const { fs, baseDir, root } = await resolveBase()
       const path = `${root}/${safeName(id)}`
+      if (await fs.exists(path, { baseDir })) await fs.remove(path, { baseDir })
+      const dir = `${root}/${blobDir(id)}`
+      if (await fs.exists(dir, { baseDir })) await fs.remove(dir, { baseDir, recursive: true })
+    },
+    readBlob: async (id, key) => {
+      const { fs, baseDir, root } = await resolveBase()
+      const path = `${root}/${blobDir(id)}/${safeKey(key)}`
+      if (!(await fs.exists(path, { baseDir }))) return null
+      return bytesToDataUrl(await fs.readFile(path, { baseDir }), key)
+    },
+    writeBlob: async (id, key, dataUrl) => {
+      const { fs, baseDir, root } = await resolveBase()
+      const dir = `${root}/${blobDir(id)}`
+      await fs.mkdir(dir, { baseDir, recursive: true })
+      const temp = `${dir}/${safeKey(key)}.tmp`
+      await fs.writeFile(temp, dataUrlBytes(dataUrl), { baseDir })
+      await fs.rename(temp, `${dir}/${safeKey(key)}`, { oldPathBaseDir: baseDir, newPathBaseDir: baseDir })
+    },
+    listBlobs: async (id) => {
+      const { fs, baseDir, root } = await resolveBase()
+      const dir = `${root}/${blobDir(id)}`
+      if (!(await fs.exists(dir, { baseDir }))) return []
+      return (await fs.readDir(dir, { baseDir })).filter((entry) => entry.isFile && !entry.name.endsWith('.tmp')).map((entry) => entry.name)
+    },
+    deleteBlob: async (id, key) => {
+      const { fs, baseDir, root } = await resolveBase()
+      const path = `${root}/${blobDir(id)}/${safeKey(key)}`
       if (await fs.exists(path, { baseDir })) await fs.remove(path, { baseDir })
     },
     listProjectIds: async () => {
@@ -270,6 +410,41 @@ export class Library {
     return run
   }
 
+  /** Known blob keys on disk per book (so unchanged images are never rewritten). */
+  private blobsOnDisk = new Map<string, Set<string>>()
+
+  private async diskBlobs(id: string): Promise<Set<string>> {
+    let known = this.blobsOnDisk.get(id)
+    if (!known) {
+      known = new Set(await this.store.listBlobs(id).catch(() => [] as string[]))
+      this.blobsOnDisk.set(id, known)
+    }
+    return known
+  }
+
+  /** Writes a project: large files to blobs (only new ones), then the small JSON; then removes unused blobs. */
+  private async writeProjectFiles(id: string, serialized: string) {
+    const { json, blobs } = externalize(serialized)
+    const known = await this.diskBlobs(id)
+    for (const [key, dataUrl] of blobs) {
+      if (known.has(key)) continue
+      await this.store.writeBlob(id, key, dataUrl)
+      known.add(key)
+    }
+    await this.store.writeProject(id, json)
+    for (const key of [...known]) {
+      if (blobs.has(key)) continue
+      await this.store.deleteBlob(id, key).catch(() => undefined)
+      known.delete(key)
+    }
+  }
+
+  private async readProjectFiles(id: string): Promise<string | null> {
+    const json = await this.store.readProject(id)
+    if (!json || !json.includes(BLOB_PREFIX)) return json
+    return internalize(json, (key) => this.store.readBlob(id, key))
+  }
+
   private async saveIndex() {
     await this.store.writeIndex(JSON.stringify(this.index, null, 2))
   }
@@ -292,7 +467,7 @@ export class Library {
       const known = new Set(index.books.map((book) => book.id))
       for (const id of ids) {
         if (known.has(id)) continue
-        const json = await this.store.readProject(id)
+        const json = await this.readProjectFiles(id)
         if (!json) continue
         try {
           const project = parseProjectFile(json)
@@ -320,7 +495,7 @@ export class Library {
     return this.enqueue(async () => {
       const id = newId('pub')
       const stored = createProject({ ...project, id, version: PROJECT_VERSION })
-      await this.store.writeProject(id, serializeProject(stored))
+      await this.writeProjectFiles(id, serializeProject(stored))
       const now = new Date().toISOString()
       const book: LibraryBook = { id, folderId, createdAt: now, ...describe(stored) }
       await this.refreshCover(book, stored)
@@ -332,7 +507,7 @@ export class Library {
 
   openBook(id: string): Promise<ProjectState> {
     return this.enqueue(async () => {
-      const json = await this.store.readProject(id)
+      const json = await this.readProjectFiles(id)
       if (!json) throw new Error('This publication’s file is missing from the library folder.')
       const project = parseProjectFile(json)
       return { ...project, id }
@@ -343,7 +518,7 @@ export class Library {
     return this.enqueue(async () => {
       const existing = this.index.books.find((book) => book.id === id)
       if (!existing) throw new Error('This publication is no longer in the library.')
-      await this.store.writeProject(id, serializeProject({ ...project, id }))
+      await this.writeProjectFiles(id, serializeProject({ ...project, id }))
       const book: LibraryBook = { ...existing, ...describe(project, existing) }
       await this.refreshCover(book, project)
       this.index = { ...this.index, books: this.index.books.map((candidate) => (candidate.id === id ? book : candidate)) }
@@ -357,10 +532,10 @@ export class Library {
       const existing = this.index.books.find((book) => book.id === id)
       if (!existing) return
       if (details.title !== undefined || details.description !== undefined || details.category !== undefined) {
-        const json = await this.store.readProject(id)
+        const json = await this.readProjectFiles(id)
         if (json) {
           const project = parseProjectFile(json)
-          await this.store.writeProject(
+          await this.writeProjectFiles(
             id,
             serializeProject({
               ...project,
@@ -383,12 +558,12 @@ export class Library {
   duplicateBook(id: string): Promise<LibraryBook> {
     return this.enqueue(async () => {
       const source = this.index.books.find((book) => book.id === id)
-      const json = await this.store.readProject(id)
+      const json = await this.readProjectFiles(id)
       if (!source || !json) throw new Error('The publication to duplicate was not found.')
       const project = parseProjectFile(json)
       const copyId = newId('pub')
       const title = `${source.title} (copy)`
-      await this.store.writeProject(copyId, serializeProject({ ...project, id: copyId, title }))
+      await this.writeProjectFiles(copyId, serializeProject({ ...project, id: copyId, title }))
       const now = new Date().toISOString()
       const book: LibraryBook = { ...source, id: copyId, title, createdAt: now, updatedAt: now, published: undefined }
       const position = this.index.books.findIndex((candidate) => candidate.id === id)
@@ -414,6 +589,7 @@ export class Library {
   deleteBook(id: string): Promise<void> {
     return this.enqueue(async () => {
       await this.store.deleteProject(id)
+      this.blobsOnDisk.delete(id)
       this.index = { ...this.index, books: this.index.books.filter((book) => book.id !== id) }
       await this.saveIndex()
     })

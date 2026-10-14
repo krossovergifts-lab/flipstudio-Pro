@@ -98,3 +98,12 @@
 .publish-more summary { color: #94a3b8; font-size: 12px; cursor: pointer; }
 .publish-more .publish-grid { margin-top: 8px; }
 @media (max-width: 560px) { .publish-step { grid-template-columns: 28px minmax(0, 1fr); } .publish-step-btn { grid-column: 2; justify-self: start; } .publish-step-fields { grid-column: 2; } }
+
+.publish-choice { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; text-align: left; color: #94a3b8; background: #0b1220 !important; border: 1px solid rgba(148, 163, 184, 0.3) !important; border-radius: 10px !important; font-size: 12px; cursor: pointer; }
+.publish-choice:hover { border-color: #3b82f6 !important; }
+.publish-choice strong { color: #f1f5f9; font-size: 14px; }
+.publish-choice em { margin-left: 6px; padding: 1px 7px; color: #bbf7d0; background: rgba(22, 163, 74, 0.25); border-radius: 999px; font-size: 10px; font-style: normal; font-weight: 600; vertical-align: 1px; }
+.publish-site-row { display: flex; gap: 6px; }
+.publish-site-row select { flex: 1 1 auto; min-width: 0; padding: 7px 9px; color: #e2e8f0; background: #0b1220; border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 6px; font: inherit; }
+.publish-dialog select { padding: 7px 9px; color: #e2e8f0; background: #0b1220; border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 6px; font: inherit; }
+.publish-name .publish-slug-row input { font-family: ui-monospace, Consolas, monospace; }

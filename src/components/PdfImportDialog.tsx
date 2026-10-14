@@ -11,6 +11,8 @@ export interface PdfBookInfo {
   category: string
   keywords: string
   reader: ReaderSettings
+  /** Replacing the PDF of an existing publication: keep its objects, animations and design. */
+  keepObjects?: boolean
 }
 
 export interface PdfImportDialogProps {
@@ -18,6 +20,8 @@ export interface PdfImportDialogProps {
   /** Pre-filled details (e.g. the open publication's when re-importing in the editor). */
   initial?: Partial<PdfBookInfo>
   confirmLabel?: string
+  /** Set when the publication already has pages with objects: offers "Replace PDF, keep my objects". */
+  replace?: { pageCount: number; objectCount: number }
   onCancel: () => void
   onImport: (options: PdfImportOptions, info: PdfBookInfo) => void
 }
@@ -33,7 +37,8 @@ const READER_THEMES: Array<{ id: string; label: string; background: string; tool
 const fileTitle = (file: File) => file.name.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ').trim() || 'Imported publication'
 
 /** "Add new book" wizard shown before a PDF is imported: book info, text layer, image quality and reader look. */
-export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', onCancel, onImport }: PdfImportDialogProps) {
+export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', replace, onCancel, onImport }: PdfImportDialogProps) {
+  const [keepObjects, setKeepObjects] = useState(Boolean(replace))
   const [inspection, setInspection] = useState<PdfInspection | null>(null)
   const [inspectError, setInspectError] = useState('')
   const [title, setTitle] = useState(initial?.title ?? fileTitle(file))
@@ -79,7 +84,7 @@ export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', on
     event.preventDefault()
     onImport(
       { text: text && inspection?.hasText !== false, quality },
-      { title: title.trim() || fileTitle(file), description: description.trim(), category, keywords: keywords.trim(), reader: { background, toolbar, textTools: true } },
+      { title: title.trim() || fileTitle(file), description: description.trim(), category, keywords: keywords.trim(), reader: keepObjects && initial?.reader ? initial.reader : { ...(initial?.reader ?? {}), background, toolbar, textTools: true }, keepObjects },
     )
   }
 
@@ -104,6 +109,24 @@ export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', on
         </header>
 
         <div className="pdf-wizard-body">
+          {replace && (
+            <section>
+              <h3>New version of this publication</h3>
+              <div className="pdf-wizard-choices" role="radiogroup" aria-label="Objects">
+                <label className={`pdf-choice${keepObjects ? ' is-selected' : ''}`}>
+                  <input type="radio" name="pdf-keep" checked={keepObjects} onChange={() => setKeepObjects(true)} />
+                  <strong>Replace PDF, keep my work <em>Recommended</em></strong>
+                  <span>The {replace.objectCount} object{replace.objectCount === 1 ? '' : 's'}, animations, links and design stay on the same page numbers. Use this when the catalogue PDF was updated.</span>
+                </label>
+                <label className={`pdf-choice${!keepObjects ? ' is-selected' : ''}`}>
+                  <input type="radio" name="pdf-keep" checked={!keepObjects} onChange={() => setKeepObjects(false)} />
+                  <strong>Start again</strong>
+                  <span>Removes all objects and animations (you can Undo).</span>
+                </label>
+              </div>
+            </section>
+          )}
+
           <section>
             <h3>Book info</h3>
             <label>
@@ -158,7 +181,7 @@ export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', on
             </div>
           </section>
 
-          <section>
+          {!keepObjects && <section>
             <h3>Reader look</h3>
             <div className="pdf-wizard-themes" role="radiogroup" aria-label="Reader theme">
               {READER_THEMES.map((theme) => (
@@ -185,7 +208,7 @@ export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', on
                 <input type="color" value={toolbar} onChange={(event) => setToolbar(event.target.value)} />
               </label>
             </div>
-          </section>
+          </section>}
         </div>
 
         <footer className="pdf-wizard-foot">

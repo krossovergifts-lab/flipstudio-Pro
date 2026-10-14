@@ -183,12 +183,14 @@ describe('publication library home', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Publish Leather Gifts 2027 online' }))
     let dialog = screen.getByRole('dialog', { name: 'Publish online' })
+    expect(within(dialog).getByText('Its own brand-free website', { exact: false })).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: /Bookshelf on GitHub Pages/ }))
     expect(within(dialog).getByText('Set up online publishing')).toBeTruthy()
     expect(within(dialog).getByRole('link', { name: 'Create access key ↗' }).getAttribute('href')).toContain('pages=write')
     fireEvent.change(within(dialog).getByLabelText('Access key'), { target: { value: 'good-token' } })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Connect' }))
     await waitFor(() => expect(within(dialog).getByLabelText('Link name')).toBeTruthy(), { timeout: 20000 })
-    expect(JSON.parse(window.localStorage.getItem('flipstudio.publish.v1')!).token).toBe('good-token')
+    expect(JSON.parse(window.localStorage.getItem('flipstudio.publish.sites.v1')!)[0].token).toBe('good-token')
 
     expect((within(dialog).getByLabelText('Link name') as HTMLInputElement).value).toBe('leather-gifts-2027')
     expect(within(dialog).getByText('https://krossovergifts-lab.github.io/flipbooks/leather-gifts-2027/')).toBeTruthy()
