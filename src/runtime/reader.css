@@ -366,3 +366,7 @@
 @media (max-width: 600px) {
   .fs-reader-bar { gap: 6px; padding: 6px; }
 }
+
+/* Embedded in another website */
+.fs-embedded .fs-top-title { display: none; }
+.fs-embedded .fs-reader-top { min-height: 42px; padding-top: 4px; padding-bottom: 4px; }

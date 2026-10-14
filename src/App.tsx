@@ -41,6 +41,8 @@ import { OverlayView, type ResizeHandle } from './components/OverlayView'
 import { SlideshowInspector } from './components/SlideshowInspector'
 import { VideoInspector } from './components/VideoInspector'
 import { Icon } from './components/Icon'
+import { applyNewPdf } from './lib/edition'
+import { ProductImportDialog } from './components/ProductImportDialog'
 import { ThemeSwitch } from './components/ThemeSwitch'
 import { PreviewPane } from './components/PreviewPane'
 import { Timeline } from './components/Timeline'
@@ -961,6 +963,7 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
 
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [designOpen, setDesignOpen] = useState<false | 'theme' | 'bookmarks'>(false)
+  const [productsOpen, setProductsOpen] = useState(false)
   const handleImportPdf = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0]
@@ -978,46 +981,9 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
         const { pages: imported, textPages } = await importPdfPages(file, options, (page, total) => setStatus(`Importing ${file.name}: page ${page} of ${total}`))
 
         const keep = Boolean(info.keepObjects)
-        const oldPages = committedProject.pages
-        // New version of the PDF: pages are matched by number, so objects stay on "their" page.
-        const pages = keep
-          ? imported.map((page, index) => {
-              const old = oldPages[index]
-              if (!old) return page
-              const sx = page.width / old.width
-              const sy = page.height / old.height
-              const scaled = Math.abs(sx - 1) > 0.01 || Math.abs(sy - 1) > 0.01
-              return {
-                ...page,
-                id: old.id,
-                name: old.name && !/^page \d+$/i.test(old.name) ? old.name : page.name,
-                overlays: scaled
-                  ? old.overlays.map((overlay) => ({ ...overlay, x: overlay.x * sx, y: overlay.y * sy, width: overlay.width * sx, height: overlay.height * sy, fontSize: overlay.fontSize ? overlay.fontSize * sx : overlay.fontSize }))
-                  : old.overlays,
-              }
-            })
-          : imported
-        const dropped = keep ? oldPages.slice(imported.length).reduce((total, page) => total + page.overlays.length, 0) : 0
-        const keptIds = new Set(pages.flatMap((page) => page.overlays.map((overlay) => overlay.id)))
-        let assets = committedProject.assets
-        let reader = info.reader
-        if (info.allowDownload) {
-          const merged = mergeAssets(assets, [createAsset({ name: file.name, dataUrl: await fileToDataUrl(file, file.name) })])
-          assets = merged.assets
-          reader = { ...reader, downloadAssetId: merged.ids[0], downloadName: file.name }
-        }
-        const nextProject = createProject({
-          version: PROJECT_VERSION,
+        const { project: nextProject, dropped } = applyNewPdf(committedProject, imported, info, {
           id: libraryMode ? committedProject.id : undefined,
-          title: info.title,
-          description: info.description,
-          category: info.category,
-          keywords: info.keywords,
-          reader,
-          fonts: committedProject.fonts,
-          assets,
-          animations: keep ? committedProject.animations.filter((animation) => keptIds.has(animation.targetId)) : [],
-          pages,
+          download: info.allowDownload ? { name: file.name, dataUrl: await fileToDataUrl(file, file.name) } : undefined,
         })
 
         commitProject(nextProject)
@@ -1446,6 +1412,16 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
           }}
         />
       )}
+      {productsOpen && (
+        <ProductImportDialog
+          project={committedProject}
+          onCancel={() => setProductsOpen(false)}
+          onApply={(next, outcome) => {
+            commitProject(next)
+            report(`Product hotspots: ${outcome.added} added, ${outcome.updated} updated${outcome.removed ? `, ${outcome.removed} removed` : ''}`, outcome.skipped.length ? `${outcome.skipped.length} rows could not be placed.` : undefined)
+          }}
+        />
+      )}
       {pdfFile && (
         <PdfImportDialog
           file={pdfFile}
@@ -1505,6 +1481,9 @@ export function Editor({ initialProject, initialMode = 'edit', onPersist, onExit
             disabled={isPreview}
           >
             <Icon name="video" /><span className="btn-label">Video</span>
+          </button>
+          <button type="button" aria-label="Product hotspots from Excel" title="Product hotspots from an Excel or CSV sheet (SKU, page, price, link)" onClick={() => setProductsOpen(true)} disabled={isPreview}>
+            <Icon name="table" /><span className="btn-label">Products</span>
           </button>
         </div>
         <div className="toolbar-spacer" />

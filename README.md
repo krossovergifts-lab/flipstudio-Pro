@@ -18,6 +18,11 @@ Built with React + TypeScript + Vite (editor), Tauri 2 (Windows shell), PDF.js a
 - **Flipbook design** (🎨 in the editor): themes, background colour / gradient / image, toolbar colours, page-turn presets (smooth, magazine, hardcover, quick) with speed and soft cover, page sound (built-in or your own), bookmarks (tab text, colour as hex, hover effect slide / grow / glow), auto flip, share & PDF download, logo and title — with a live preview.
 - **Video**: video objects (upload MP4/WebM or paste a YouTube / Vimeo link) and video slides in slideshows; play on their page, stop on page turn.
 - **SEO & Google Analytics**: title, description, keywords, language and "hide from Google"; crawlable page text, structured data, sitemap.xml, robots.txt; links that open on a page (`#page=12`); GA4 page views and events (searches, clicks, shares, downloads, videos) with optional cookie notice.
+- **New edition**: next year's PDF with the same design, published on the same link (the old edition stays in the library).
+- **Product hotspots from Excel/CSV**: SKU, page, name, price, link, WhatsApp — markers placed on the product codes automatically, re-import updates.
+- **Own statistics** (Cloudflare Pages + D1): readers, visits, page views, top pages, searches, clicks, countries, devices — dashboard in the app.
+- **Embed code**: iframe, pop-up button or cover link for WordPress, Shopify, Wix.
+- **Meta Pixel & LinkedIn Insight Tag** with mapped events; **page link previews** (`/p/12/` shows page 12 in WhatsApp).
 - **Phones**: one compact toolbar with a More sheet, pinch to zoom, swipe to turn.
 - **App theme**: light, dark or match Windows (library sidebar or the sun/moon button in the editor).
 - **Replace PDF**: import a new version of the catalogue PDF and keep all objects, animations and the design.

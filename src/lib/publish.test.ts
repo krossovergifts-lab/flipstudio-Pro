@@ -95,6 +95,7 @@ describe('publishBook (against a fake GitHub)', () => {
       'index.html',
       'leather-gifts-2027/cover.jpg',
       'leather-gifts-2027/index.html',
+      'leather-gifts-2027/p/2/index.html',
       'leather-gifts-2027/pages/page-001.jpg',
       'leather-gifts-2027/pages/page-002.jpg',
       'robots.txt',
@@ -102,6 +103,11 @@ describe('publishBook (against a fake GitHub)', () => {
     ])
     expect(files['sitemap.xml']).toContain('<loc>https://books.example.com/leather-gifts-2027/</loc>')
     expect(files['robots.txt']).toContain('Sitemap: https://books.example.com/sitemap.xml')
+    // Page 2 has its own link preview that opens the book on page 2.
+    const pageTwo = files['leather-gifts-2027/p/2/index.html']
+    expect(pageTwo).toContain('<meta property="og:image" content="https://books.example.com/leather-gifts-2027/pages/page-002.jpg" />')
+    expect(pageTwo).toContain('https://books.example.com/leather-gifts-2027/#page=2')
+    expect(files['leather-gifts-2027/index.html']).toContain('"pageShare":true')
     const page = files['leather-gifts-2027/index.html']
     expect(page).toContain('<meta property="og:title" content="Leather Gifts 2027" />')
     expect(page).toContain('<meta property="og:image" content="https://books.example.com/leather-gifts-2027/cover.jpg" />')
@@ -132,7 +138,7 @@ describe('publishBook (against a fake GitHub)', () => {
     expect(github.blobUploads).toBe(uploadsAfterFirst)
 
     const shorter = await publishBook(settings, book({}, [PAGE]), { slug: 'gifts', fetchImpl: github.fetch, apiBase: API, shareImage: share, loadFont: noFonts })
-    expect(shorter.removed).toBe(1)
+    expect(shorter.removed).toBe(2) // page 2 and its link-preview page
     expect(shorter.uploaded).toBe(1) // only index.html changed
     expect(github.files()['gifts/pages/page-002.jpg']).toBeUndefined()
     expect(github.commits.at(-1)).toBe('Update “Leather Gifts 2027”')
@@ -146,7 +152,7 @@ describe('publishBook (against a fake GitHub)', () => {
     expect(await onlineSlugs(settings, github.fetch, API)).toEqual(['gifts', 'menu'])
 
     const removed = await unpublishBook(settings, 'gifts', { fetchImpl: github.fetch, apiBase: API })
-    expect(removed.removed).toBe(4)
+    expect(removed.removed).toBe(5)
     const files = github.files()
     expect(Object.keys(files).some((path) => path.startsWith('gifts/'))).toBe(false)
     expect(files['menu/index.html']).toBeTruthy()
@@ -206,12 +212,22 @@ describe('one-step GitHub Pages setup', () => {
 describe('brand-free single-catalogue website', () => {
   const single: PublishSettings = { ...settings, repo: 'catalogue-2027', siteUrl: 'https://promotionalgifts-catalogue-2027.pages.dev', layout: 'single' }
 
+  it('publishes the statistics collector when statistics are on', async () => {
+    const github = await createFakeGitHub()
+    await publishBook({ ...single, stats: { key: 'k', keyHash: 'abc123' } }, book(), { slug: '', fetchImpl: github.fetch, apiBase: API, shareImage: share, loadFont: noFonts })
+    const files = github.files()
+    expect(files['functions/api/fs-collect.js']).toBeTruthy()
+    expect(files['functions/api/fs-stats.js']).toContain('const KEY_HASH = "abc123"')
+    expect(files['functions/api/fs-stats.js']).not.toContain('"k"')
+    expect(files['index.html']).toContain('"stats":{"url":"/api/fs-collect","pub":""}')
+  })
+
   it('puts the publication at the root of its own website', async () => {
     const github = await createFakeGitHub()
     const result = await publishBook(single, book(), { slug: 'ignored', fetchImpl: github.fetch, apiBase: API, shareImage: share, loadFont: noFonts })
     expect(result.url).toBe('https://promotionalgifts-catalogue-2027.pages.dev/')
     const files = github.files()
-    expect(Object.keys(files).sort()).toEqual(['.nojekyll', '404.html', 'README.md', 'cover.jpg', 'index.html', 'pages/page-001.jpg', 'pages/page-002.jpg', 'robots.txt', 'sitemap.xml'])
+    expect(Object.keys(files).sort()).toEqual(['.nojekyll', '404.html', 'README.md', 'cover.jpg', 'index.html', 'p/2/index.html', 'pages/page-001.jpg', 'pages/page-002.jpg', 'robots.txt', 'sitemap.xml'])
     expect(files['sitemap.xml']).toContain('<loc>https://promotionalgifts-catalogue-2027.pages.dev/</loc>')
     expect(files['index.html']).toContain('<meta property="og:image" content="https://promotionalgifts-catalogue-2027.pages.dev/cover.jpg" />')
     expect(files['index.html']).not.toContain('krossover')
@@ -219,7 +235,7 @@ describe('brand-free single-catalogue website', () => {
 
     // A new version with fewer pages removes the old page; the repository README stays.
     const again = await publishBook(single, book({}, [PAGE]), { slug: '', fetchImpl: github.fetch, apiBase: API, shareImage: share, loadFont: noFonts })
-    expect(again.removed).toBe(1)
+    expect(again.removed).toBe(2)
     expect(github.files()['pages/page-002.jpg']).toBeUndefined()
     expect(github.files()['README.md']).toBeTruthy()
 

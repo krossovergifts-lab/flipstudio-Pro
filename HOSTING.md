@@ -92,6 +92,67 @@ titles like "Catalogue · Pages 12–13", so you know which products are read mo
 `video_start`, `video_complete`, `select_content` (Contents). Turn on **Ask visitors first** if you
 need a cookie notice (EU visitors).
 
+## Next year's catalogue on the same link (new edition)
+
+1. In the library, on the 2027 card click **Edition** and choose the 2028 PDF.
+2. Keep **Keep the design** (theme, logo, page turn, sound, SEO, Google Analytics, Pixel stay;
+   the 2027 hotspots and bookmarks do not) — or keep the objects too if the pages match.
+3. Edit the new edition (import the 2028 product sheet with **Products**), then **Publish**.
+   The website and link are already selected: “Promotional Gifts 2027 is on this website now.
+   Publishing replaces it”. Everyone with the old link now sees 2028; WhatsApp previews update too.
+4. The 2027 edition stays in your library (not online). To keep it online as an archive, publish
+   it to your bookshelf site.
+
+Tip: a Cloudflare `*.pages.dev` name cannot be renamed. If the address contains a year, connect a
+year-free custom domain (see above) and share that from now on — both addresses keep working.
+
+## Product hotspots from Excel
+
+Editor → **Products** (table icon) → **Download template** → fill one row per product:
+`SKU` (the code printed in the catalogue), `Page` (optional), `Name`, `Price`, `Description`,
+`Link` and/or `WhatsApp`, `Button`, `Image URL`. Choose the file → the app finds every code in the
+PDF text and puts a pulsing **+** next to it (or an invisible clickable area over the code). Clicking
+opens a pop-up with name, price, description and a **View product** / **Ask on WhatsApp** button.
+Codes it cannot find are placed on the right edge of their page for you to drag. Re-import the sheet
+any time: prices and links update, nothing is duplicated, and hotspots you moved stay put.
+
+## Your own statistics (Cloudflare Pages)
+
+Library → **Stats** on a published catalogue → **Turn on statistics** → follow the three steps:
+1. **Update online version** (uploads two small files: `functions/api/fs-collect.js`, `fs-stats.js`).
+2. Cloudflare → **Storage & Databases → D1 SQL Database → Create** → `catalogue-stats`.
+3. **Workers & Pages →** your project → **Settings → Bindings → Add → D1 database** → variable
+   name `DB` → `catalogue-stats` → Save, then **Update online version** once more.
+
+The dashboard shows readers, visits, page views, pages per visit, a daily chart, most-read pages,
+searches, clicked links/WhatsApp, products opened, countries, devices, where visitors came from,
+shares and downloads, for 7 / 30 / 90 days or a year, with CSV export. No cookies and no IP
+addresses are stored. The free D1 plan allows 100,000 events a day. (GitHub Pages sites cannot
+run the collector — use Google Analytics there.)
+
+## Embed in your company website
+
+**Publish → Embed code** (or after publishing, **Embed on a website**): choose **Flipbook on the
+page** (responsive iframe, choose height and start page), **Button that opens it** (pop-up), or
+**Cover picture link**. Paste into WordPress (Custom HTML block), Shopify (page → Show HTML), Wix
+(Embed code → Embed HTML) or any HTML page. Embedded, the reader shows a compact top bar and an
+**Open full catalogue** button.
+
+## Meta Pixel and LinkedIn (ads retargeting)
+
+**Design → SEO & analytics → Ad tracking**: paste the Meta Pixel ID and/or the LinkedIn Insight
+Tag partner ID (and optionally a LinkedIn conversion ID for enquiries), Apply, then Update online.
+Meta receives PageView, FlipPage (each page), Search, ViewContent (product pop-ups), Contact
+(WhatsApp/email/phone clicks), OutboundClick, Share, DownloadPDF, VideoPlay — build audiences such
+as “opened the drinkware pages” or “clicked WhatsApp”. With **Ask visitors first** on, ad tags load
+only after a visitor accepts.
+
+## Page links with their own preview
+
+Every published page has a short link: `https://…/p/12/`. Shared on WhatsApp, Facebook, LinkedIn or
+X it shows **page 12's picture**, title and text, and opens the catalogue on page 12. The reader's
+**Share → Open at page N** uses these links automatically.
+
 ## Google search (SEO)
 
 Every published catalogue already includes: the title and description you set in **Design → SEO &

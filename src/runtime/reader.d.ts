@@ -97,6 +97,9 @@ export interface PublicationData {
     centerSinglePages?: boolean
     analyticsId?: string
     analyticsConsent?: boolean
+    metaPixelId?: string
+    linkedinPartnerId?: string
+    linkedinConversionId?: string
     seoTitle?: string
     language?: string
     noIndex?: boolean
@@ -104,6 +107,10 @@ export interface PublicationData {
   }
   id?: string
   shareUrl?: string
+  /** Own statistics collector (published sites with statistics turned on). */
+  stats?: { url: string; pub: string }
+  /** …/p/N/ link-preview pages exist for each page. */
+  pageShare?: boolean
 }
 
 export interface PublicationHandle {

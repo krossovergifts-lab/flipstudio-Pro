@@ -1,5 +1,3 @@
-import { Icon } from './Icon'
-import { ThemeSwitch } from './ThemeSwitch'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { isTauri } from '@tauri-apps/api/core'
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
@@ -10,7 +8,12 @@ import { fileToDataUrl } from '../lib/assets'
 import { importPdfPages, type PdfImportOptions } from '../lib/pdfImport'
 import { PdfImportDialog, type PdfBookInfo } from './PdfImportDialog'
 import { PublishDialog } from './PublishDialog'
+import { StatsDialog } from './StatsDialog'
 import { exportPublication } from '../lib/exporters'
+import { applyNewPdf, nextEditionTitle } from '../lib/edition'
+import type { ProjectState } from '../lib/project'
+import { Icon } from './Icon'
+import { ThemeSwitch } from './ThemeSwitch'
 import { errorMessage } from '../lib/errors'
 import '../Library.css'
 
@@ -104,7 +107,33 @@ export function LibraryHome({ library, index, location, onIndexChange, onOpen }:
   const heading = view === 'all' ? 'All publications' : view === 'recent' ? 'Recently edited' : view === 'unfiled' ? 'Not in a folder' : folderName(view) ?? 'Folder'
 
   const [pdfFile, setPdfFile] = useState<File | null>(null)
+  const [edition, setEdition] = useState<{ book: LibraryBook; project: ProjectState; file: File } | null>(null)
+  const editionInputRef = useRef<HTMLInputElement | null>(null)
+  const editionSourceRef = useRef<LibraryBook | null>(null)
+  const startEdition = (book: LibraryBook) => {
+    editionSourceRef.current = book
+    editionInputRef.current?.click()
+  }
+  const chooseEditionPdf = (file: File) => {
+    const book = editionSourceRef.current
+    editionSourceRef.current = null
+    if (!book) return
+    void run('Opening…', async () => {
+      const project = await library.openBook(book.id)
+      setEdition({ book, project, file })
+    })
+  }
+  const createEdition = (source: { book: LibraryBook; project: ProjectState; file: File }, options: PdfImportOptions, info: PdfBookInfo) =>
+    run(`Importing ${source.file.name}…`, async () => {
+      const { pages } = await importPdfPages(source.file, options, (page, total) => setBusy(`Importing ${source.file.name} — page ${page} of ${total}`))
+      setBusy('Saving the new edition…')
+      const { project } = applyNewPdf(source.project, pages, info, { download: info.allowDownload ? { name: source.file.name, dataUrl: await fileToDataUrl(source.file, source.file.name) } : undefined })
+      const book = await library.createBook(project, source.book.folderId, { editionOf: source.book.id })
+      refresh()
+      await onOpen(book.id, 'edit')
+    })
   const [publishing, setPublishing] = useState<string | null>(null)
+  const [statsFor, setStatsFor] = useState<LibraryBook | null>(null)
   const copyLink = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url)
@@ -177,6 +206,11 @@ export function LibraryHome({ library, index, location, onIndexChange, onOpen }:
 
   return (
     <div className="library-shell">
+      <input ref={editionInputRef} type="file" accept="application/pdf" hidden data-testid="edition-pdf-input" onChange={(event) => {
+        const file = event.target.files?.[0]
+        event.target.value = ''
+        if (file) chooseEditionPdf(file)
+      }} />
       <input ref={pdfInputRef} type="file" accept="application/pdf" hidden data-testid="library-pdf-input" onChange={(event) => {
         const file = event.target.files?.[0]
         event.target.value = ''
@@ -321,6 +355,8 @@ export function LibraryHome({ library, index, location, onIndexChange, onOpen }:
                       )}
                     </div>
                     <button type="button" className={book.published ? 'live' : ''} onClick={() => setPublishing(book.id)} aria-label={`Publish ${book.title} online`} title={book.published ? 'Online — update or unpublish' : 'Publish online'}><Icon name="globe" /><span>{book.published ? 'Online' : 'Publish'}</span></button>
+                    <button type="button" onClick={() => setStatsFor(book)} aria-label={`Statistics for ${book.title}`} title={book.published ? 'Statistics: visits, pages read, searches, clicks' : 'Statistics (publish first)'} disabled={!book.published}><Icon name="stats" /><span>Stats</span></button>
+                    <button type="button" onClick={() => startEdition(book)} aria-label={`New edition of ${book.title}`} title="New edition — import next year's PDF with the same design (and link)"><Icon name="layers" /><span>Edition</span></button>
                     <button type="button" onClick={() => void run('Duplicating…', async () => { const copy = await library.duplicateBook(book.id); return `Created “${copy.title}”` })} aria-label={`Duplicate ${book.title}`} title="Duplicate"><Icon name="copy" /><span>Copy</span></button>
                     <button type="button" onClick={() => setDialog({ kind: 'settings', book })} aria-label={`Settings for ${book.title}`} title="Settings"><Icon name="settings" /><span>Settings</span></button>
                     <button type="button" className="danger" onClick={() => setDialog({ kind: 'delete', book })} aria-label={`Delete ${book.title}`} title="Delete"><Icon name="trash" /><span>Delete</span></button>
@@ -338,8 +374,21 @@ export function LibraryHome({ library, index, location, onIndexChange, onOpen }:
         </div>
       )}
 
+      {statsFor && <StatsDialog library={library} book={statsFor} onClose={() => setStatsFor(null)} />}
+
       {publishing && (
         <PublishDialog library={library} bookId={publishing} onClose={() => setPublishing(null)} onChange={refresh} />
+      )}
+
+      {edition && (
+        <PdfImportDialog
+          file={edition.file}
+          initial={{ title: nextEditionTitle(edition.project.title), description: edition.project.description ?? '', category: edition.project.category ?? '', keywords: edition.project.keywords ?? '', reader: edition.project.reader }}
+          edition={{ sourceTitle: edition.book.title, objectCount: edition.book.objectCount, live: Boolean(edition.book.published) }}
+          confirmLabel="Create new edition"
+          onCancel={() => setEdition(null)}
+          onImport={(options, info) => { const source = edition; setEdition(null); void createEdition(source, options, info) }}
+        />
       )}
 
       {pdfFile && (

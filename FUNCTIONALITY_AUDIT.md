@@ -189,6 +189,22 @@ Verified in this (Linux) workspace:
 ### Third-party licences
 `THIRD_PARTY_NOTICES.md` contains the MIT licence of StPageFlip and the OFL licence text of every bundled font. Exported ZIP READMEs list the fonts they embed.
 
+## Eighth pass (2026-10-14): v1.6 — editions, product sheet, statistics, embed, ad tags, page previews
+
+- New edition (library **Edition**): imports next year's PDF into a copy that keeps design/SEO/
+  tracking; Publish preselects the old site and link and takes it over; old edition marked offline;
+  bookshelf links can be taken over with an explicit tick (e2e8 N1–N6, unit edition.test).
+- Product hotspots from .xlsx/.csv (own reader/writer on JSZip, no new dependency): header synonyms,
+  SKU located in the PDF text layer, marker or invisible area, pop-up with link/WhatsApp, re-import
+  matches by SKU and only overwrites filled cells, optional removal, template download (X1–X4).
+- Own statistics: generated Cloudflare Pages Functions (collector + key-protected reader) on D1,
+  reader batches events with sendBeacon, dashboard with KPIs, daily chart with tooltip, ranked lists,
+  CSV export, guided setup (S1–S6, unit stats.test with a fake D1).
+- Embed: iframe / pop-up button / cover snippets, reader embed mode (E1–E3).
+- Meta Pixel + LinkedIn Insight Tag with consent gating and event mapping (M1–M2).
+- Page link previews: p/N/index.html per page with page image OG tags, redirect to #page=N (L1–L2).
+- Tests: Vitest 109/109, oxlint clean, Playwright e2e 46 + 19 + 24 + 24 + 16 + 28 + 27 + 25 pass.
+
 ## Seventh pass (2026-10-14): v1.5 — video, SEO, Google Analytics, phones, light/dark app
 
 Checked against PubHTML5's feature list:

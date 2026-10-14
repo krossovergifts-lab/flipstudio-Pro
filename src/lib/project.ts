@@ -27,6 +27,8 @@ export interface PopupContent {
   description: string
   price?: string
   assetId?: string
+  /** Picture from the web (e.g. imported from a product spreadsheet), used when no image is uploaded. */
+  imageUrl?: string
   buttonLabel?: string
   link?: LinkAction
 }
@@ -118,6 +120,8 @@ export interface OverlayObject {
   /** Video objects: YouTube / Vimeo / .mp4 link (used when no file is uploaded), sound off. */
   videoUrl?: string
   muted?: boolean
+  /** Product code of a hotspot imported from a spreadsheet (matches rows on re-import). */
+  sku?: string
 }
 
 export interface PageDefinition {
@@ -207,6 +211,11 @@ export interface ReaderSettings {
   analyticsId?: string
   /** Ask visitors before counting them (cookie notice + Google consent mode). */
   analyticsConsent?: boolean
+  /** Meta (Facebook / Instagram) Pixel ID and LinkedIn Insight Tag partner ID, for ad audiences. */
+  metaPixelId?: string
+  linkedinPartnerId?: string
+  /** LinkedIn conversion counted for enquiries (WhatsApp, email, phone and product-link clicks). */
+  linkedinConversionId?: string
   /** Search engines: title shown in Google (defaults to the publication title), language, and hide from search. */
   seoTitle?: string
   language?: string
@@ -382,6 +391,7 @@ function normalizeOverlay(overlay: Partial<OverlayObject>, fallbackId: string): 
   if (overlay.effect && overlay.effect !== 'none') normalized.effect = overlay.effect
   if (overlay.hoverEffect && overlay.hoverEffect !== 'none') normalized.hoverEffect = overlay.hoverEffect
   if (overlay.tooltip) normalized.tooltip = String(overlay.tooltip)
+  if (typeof overlay.sku === 'string' && overlay.sku) normalized.sku = overlay.sku
   if (overlay.crop && typeof overlay.crop === 'object') {
     normalized.crop = {
       zoom: Math.min(5, Math.max(1, finite(overlay.crop.zoom, 1))),
@@ -766,7 +776,7 @@ export function buildPublicationData(
               title: overlay.popup.title,
               description: overlay.popup.description,
               price: overlay.popup.price,
-              image: overlay.popup.assetId ? url({ assetId: overlay.popup.assetId }) : '',
+              image: overlay.popup.assetId ? url({ assetId: overlay.popup.assetId }) : /^https?:\/\//i.test(overlay.popup.imageUrl ?? '') ? overlay.popup.imageUrl! : '',
               buttonLabel: overlay.popup.buttonLabel,
               link: overlay.popup.link,
             }
@@ -818,6 +828,8 @@ export interface PublicationMeta {
   siteName?: string
   /** Last update (ISO date) for search engines. */
   modified?: string
+  /** Own statistics collector on the same website. */
+  stats?: { url: string; pub: string }
 }
 
 const GA_ID = /^G-[A-Z0-9]{4,16}$/i
@@ -825,13 +837,30 @@ const GA_ID = /^G-[A-Z0-9]{4,16}$/i
 /** Google Analytics 4 tag. Page views are sent by the reader (one per page or spread), so the tag does not send its own. */
 export function analyticsTag(reader: PublicationData['reader']): string {
   const id = String(reader?.analyticsId ?? '').trim().toUpperCase()
-  if (!GA_ID.test(id)) return ''
-  const consent = reader?.analyticsConsent
-    ? `var fsGranted=false;try{fsGranted=localStorage.getItem('fs-consent')==='granted'}catch(e){}gtag('consent','default',{analytics_storage:fsGranted?'granted':'denied',ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied'});`
-    : ''
-  return `    <script async src="https://www.googletagmanager.com/gtag/js?id=${id}"></script>
-    <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}${consent}gtag('js',new Date());gtag('config','${id}',{send_page_view:false});</script>
-`
+  const pixel = String(reader?.metaPixelId ?? '').replace(/\D/g, '')
+  const linkedin = String(reader?.linkedinPartnerId ?? '').replace(/\D/g, '')
+  const ga = GA_ID.test(id)
+  const hasPixel = pixel.length >= 8
+  const hasLinkedin = linkedin.length >= 3
+  if (!ga && !hasPixel && !hasLinkedin) return ''
+  const consent = Boolean(reader?.analyticsConsent)
+  const parts: string[] = []
+  if (ga) {
+    parts.push(`    <script async src="https://www.googletagmanager.com/gtag/js?id=${id}"></script>`)
+    const consentDefault = consent
+      ? `var fsGranted=false;try{fsGranted=localStorage.getItem('fs-consent')==='granted'}catch(e){}gtag('consent','default',{analytics_storage:fsGranted?'granted':'denied',ad_storage:fsGranted?'granted':'denied',ad_user_data:fsGranted?'granted':'denied',ad_personalization:fsGranted?'granted':'denied'});`
+      : ''
+    parts.push(`    <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}${consentDefault}gtag('js',new Date());gtag('config','${id}',{send_page_view:false});</script>`)
+  }
+  if (hasPixel || hasLinkedin) {
+    const load: string[] = []
+    if (hasPixel) load.push(`!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${pixel}');fbq('track','PageView');`)
+    if (hasLinkedin) load.push(`window._linkedin_partner_id='${linkedin}';window._linkedin_data_partner_ids=window._linkedin_data_partner_ids||[];window._linkedin_data_partner_ids.push(window._linkedin_partner_id);(function(l){if(!l){window.lintrk=function(a,b){window.lintrk.q.push([a,b])};window.lintrk.q=[]}var s=document.getElementsByTagName('script')[0];var b=document.createElement('script');b.type='text/javascript';b.async=true;b.src='https://snap.licdn.com/li.lms-analytics/insight.min.js';s.parentNode.insertBefore(b,s)})(window.lintrk);`)
+    // With the cookie notice, ad tags load only after the visitor accepts (the reader calls fsLoadAds).
+    const run = consent ? `var fsAds=false;try{fsAds=localStorage.getItem('fs-consent')==='granted'}catch(e){}if(fsAds)window.fsLoadAds();` : 'window.fsLoadAds();'
+    parts.push(`    <script>window.fsLoadAds=function(){if(window.fsAdsLoaded)return;window.fsAdsLoaded=true;${load.join('')}};${run}</script>`)
+  }
+  return parts.join('\n') + '\n'
 }
 
 /** Plain text of one page (PDF text plus text objects), for search engines and screen readers. */
@@ -914,6 +943,40 @@ function metaTags(data: PublicationData, meta?: PublicationMeta): string {
   if (meta.url) tags.push(`    <link rel="canonical" href="${escapeHtml(meta.url)}" />`)
   if (data.reader?.language) add('property', 'og:locale', data.reader.language.replace('-', '_'))
   return tags.join('\n') + '\n' + (data.reader?.noIndex ? '' : structuredData(data, meta))
+}
+
+/**
+ * Link-preview page for one catalogue page: WhatsApp, Facebook, LinkedIn and X read
+ * its title, text and picture, and people who open it land on that page of the book.
+ */
+export function pageShareHtml(data: PublicationData, meta: PublicationMeta, index: number, imagePath?: string): string {
+  const base = (meta.url ?? '').replace(/\/?$/, '/')
+  const number = index + 1
+  const page = data.pages[index]
+  let section = ''
+  for (let i = index; i >= 0; i -= 1) if (data.pages[i].bookmark?.label) { section = data.pages[i].bookmark!.label; break }
+  const title = `${data.reader?.seoTitle || data.title} · Page ${number}${section ? ` — ${section}` : ''}`
+  const text = pagePlainText(page).replace(/\s+/g, ' ').trim()
+  const description = text ? (text.length > 180 ? `${text.slice(0, 177).replace(/\s+\S*$/, '')}…` : text) : meta.description ?? ''
+  const image = imagePath ? base + imagePath : meta.image
+  const target = `${base}#page=${number}`
+  const tag = (attr: string, key: string, value?: string) => (value ? `    <meta ${attr}="${key}" content="${escapeHtml(value)}" />\n` : '')
+  return `<!DOCTYPE html>
+<html lang="${escapeHtml(data.reader?.language || 'en')}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${escapeHtml(title)}</title>
+    <meta name="robots" content="noindex, follow" />
+    <link rel="canonical" href="${escapeHtml(base)}" />
+${tag('name', 'description', description)}${tag('property', 'og:type', 'book')}${tag('property', 'og:title', title)}${tag('property', 'og:description', description)}${tag('property', 'og:url', `${base}p/${number}/`)}${tag('property', 'og:site_name', meta.siteName)}${tag('property', 'og:image', image)}${tag('name', 'twitter:card', image ? 'summary_large_image' : 'summary')}${tag('name', 'twitter:title', title)}${tag('name', 'twitter:image', image)}    <meta http-equiv="refresh" content="0; url=${escapeHtml(target)}" />
+    <script>location.replace(${JSON.stringify(target).replace(/</g, '\\u003c')});</script>
+  </head>
+  <body style="font-family:system-ui,sans-serif;padding:24px">
+    <p><a href="${escapeHtml(target)}">Open ${escapeHtml(title)}</a></p>
+  </body>
+</html>
+`
 }
 
 export function buildPublicationHtml(data: PublicationData, fontCss = '', meta?: PublicationMeta): string {
@@ -1099,6 +1162,15 @@ export async function buildPublicationFiles(
     (page) => thumbPaths.get(page.id) ?? page.thumbUrl ?? null,
   )
   if (options.meta?.url) data.shareUrl = options.meta.url
+  if (options.meta?.stats) data.stats = options.meta.stats
+  // Online: a small page per catalogue page (…/p/12/) so a shared link shows that page's picture in WhatsApp & co.
+  if (options.meta?.url && data.reader?.pageLinks !== false && data.pages.length > 1) {
+    data.pageShare = true
+    data.pages.forEach((_, index) => {
+      if (index === 0) return
+      files.push({ path: `p/${index + 1}/index.html`, data: pageShareHtml(data, options.meta!, index, pagePaths.get(embedded.pages[index].id)) })
+    })
+  }
   files.unshift({ path: 'index.html', data: buildPublicationHtml(data, fontCss, options.meta) })
   return { files, project: embedded }
 }

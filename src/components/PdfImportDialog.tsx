@@ -24,6 +24,8 @@ export interface PdfImportDialogProps {
   confirmLabel?: string
   /** Set when the publication already has pages with objects: offers "Replace PDF, keep my objects". */
   replace?: { pageCount: number; objectCount: number }
+  /** Making a new edition (e.g. 2028) of this publication: it keeps the design and can take over its link. */
+  edition?: { sourceTitle: string; objectCount: number; live: boolean }
   onCancel: () => void
   onImport: (options: PdfImportOptions, info: PdfBookInfo) => void
 }
@@ -39,8 +41,8 @@ const READER_THEMES: Array<{ id: string; label: string; background: string; tool
 const fileTitle = (file: File) => file.name.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ').trim() || 'Imported publication'
 
 /** "Add new book" wizard shown before a PDF is imported: book info, text layer, image quality and reader look. */
-export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', replace, onCancel, onImport }: PdfImportDialogProps) {
-  const [keepObjects, setKeepObjects] = useState(Boolean(replace))
+export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', replace, edition, onCancel, onImport }: PdfImportDialogProps) {
+  const [keepObjects, setKeepObjects] = useState(Boolean(replace) && !edition)
   const [allowDownload, setAllowDownload] = useState(false)
   const [inspection, setInspection] = useState<PdfInspection | null>(null)
   const [inspectError, setInspectError] = useState('')
@@ -87,7 +89,7 @@ export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', re
     event.preventDefault()
     onImport(
       { text: text && inspection?.hasText !== false, quality },
-      { title: title.trim() || fileTitle(file), description: description.trim(), category, keywords: keywords.trim(), reader: keepObjects && initial?.reader ? initial.reader : { ...(initial?.reader ?? {}), background, toolbar, textTools: true }, keepObjects, allowDownload },
+      { title: title.trim() || fileTitle(file), description: description.trim(), category, keywords: keywords.trim(), reader: (keepObjects || edition) && initial?.reader ? initial.reader : { ...(initial?.reader ?? {}), background, toolbar, textTools: true }, keepObjects, allowDownload },
     )
   }
 
@@ -98,7 +100,7 @@ export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', re
     <div className="pdf-wizard-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel() }}>
       <form className="pdf-wizard" role="dialog" aria-modal="true" aria-label="Import PDF" ref={dialogRef} onSubmit={submit}>
         <header className="pdf-wizard-head">
-          <h2>Add new book</h2>
+          <h2>{edition ? 'New edition' : 'Add new book'}</h2>
           <div className="pdf-wizard-file">
             <span className="pdf-wizard-icon" aria-hidden="true">PDF</span>
             <div>
@@ -112,6 +114,25 @@ export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', re
         </header>
 
         <div className="pdf-wizard-body">
+          {edition && (
+            <section>
+              <h3>New edition of “{edition.sourceTitle}”</h3>
+              <div className="pdf-wizard-choices" role="radiogroup" aria-label="What to keep">
+                <label className={`pdf-choice${!keepObjects ? ' is-selected' : ''}`}>
+                  <input type="radio" name="pdf-keep" checked={!keepObjects} onChange={() => setKeepObjects(false)} />
+                  <strong>Keep the design <em>Recommended</em></strong>
+                  <span>New pages with the same theme, logo, page turn, sound, SEO and analytics. Add new hotspots for the new products.</span>
+                </label>
+                <label className={`pdf-choice${keepObjects ? ' is-selected' : ''}`}>
+                  <input type="radio" name="pdf-keep" checked={keepObjects} onChange={() => setKeepObjects(true)} />
+                  <strong>Keep the design and objects</strong>
+                  <span>Also keeps the {edition.objectCount} object{edition.objectCount === 1 ? '' : 's'}, bookmarks and animations on the same page numbers.</span>
+                </label>
+              </div>
+              <p className="pdf-wizard-note pdf-wizard-info">{edition.live ? `“${edition.sourceTitle}” stays in your library. When you publish the new edition, it takes over the same link, so everyone who has the old link sees the new catalogue.` : `“${edition.sourceTitle}” stays in your library unchanged.`}</p>
+            </section>
+          )}
+
           {replace && (
             <section>
               <h3>New version of this publication</h3>
@@ -188,7 +209,7 @@ export function PdfImportDialog({ file, initial, confirmLabel = 'Import PDF', re
             </div>
           </section>
 
-          {!keepObjects && <section>
+          {!keepObjects && !edition && <section>
             <h3>Reader look</h3>
             <div className="pdf-wizard-themes" role="radiogroup" aria-label="Reader theme">
               {READER_THEMES.map((theme) => (

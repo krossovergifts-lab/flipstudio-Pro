@@ -6,6 +6,7 @@
 // Only the GitHub REST API is used (git data endpoints), straight from the app;
 // no server of our own is involved.
 
+import { COLLECT_FUNCTION, COLLECT_PATH, STATS_PATH, statsFunction } from './stats'
 import { buildPublicationFiles, bytesToBase64, type ExportOptions, type ProjectState, type PublicationFile } from './project'
 
 export interface PublishSettings {
@@ -28,6 +29,8 @@ export interface PublishSettings {
    * 'single': one publication IS the website (opens at <site>/) — for a brand-free catalogue address.
    */
   layout?: 'shelf' | 'single'
+  /** Own statistics (Cloudflare Pages + D1): private key kept on this computer, its hash goes online. */
+  stats?: { key: string; keyHash: string }
 }
 
 export interface CatalogEntry {
@@ -588,6 +591,7 @@ export function buildRobots(catalog: Catalog, settings: Pick<PublishSettings, 's
 function siteFiles(catalog: Catalog, settings: PublishSettings): TreeEntry[] {
   const text = (path: string, content: string) => ({ path, mode: '100644', type: 'blob' as const, content }) as unknown as TreeEntry
   const seo = [text('sitemap.xml', buildSitemap(catalog, settings)), text('robots.txt', buildRobots(catalog, settings))]
+  if (settings.stats?.keyHash) seo.push(text(`functions/${COLLECT_PATH}.js`, COLLECT_FUNCTION), text(`functions/${STATS_PATH}.js`, statsFunction(settings.stats.keyHash)))
   if (settings.layout === 'single') {
     return [text('404.html', NOT_FOUND_HTML.replace('__HOME__', escapeHtml(`${normalizeSiteUrl(settings.siteUrl)}/`)).replace('See all publications', 'Open the catalogue')), text('.nojekyll', ''), ...seo]
   }
@@ -625,6 +629,7 @@ export async function publishBook(settings: PublishSettings, project: ProjectSta
       url,
       image: `${url}cover.jpg`,
       siteName: settings.siteTitle,
+      stats: settings.stats?.keyHash ? { url: `/${COLLECT_PATH}`, pub: slug } : undefined,
     },
   })
   const share = await (options.shareImage ?? makeShareImage)(project)

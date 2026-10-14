@@ -39,11 +39,63 @@ export function mountPublication(root, data, options) {
   // ---------- analytics (Google Analytics 4) ----------
   // The GA tag itself is in the published page's <head>; the reader reports what readers do.
   const analyticsId = /^G-[A-Z0-9]{4,16}$/i.test(String(readerSettings.analyticsId || '').trim()) ? String(readerSettings.analyticsId).trim().toUpperCase() : ''
+  // ---------- own statistics (Cloudflare collector on the same website) ----------
+  const statsCfg = opts.standalone && data.stats && data.stats.url ? data.stats : null
+  const statQueue = []
+  let statTimer = 0
+  let referrerHost = ''
+  try { const ref = doc.referrer ? new URL(doc.referrer) : null; if (ref && ref.host !== win.location.host) referrerHost = ref.host.replace(/^www\./, '') } catch (error) { void error }
+  const flushStats = (leaving) => {
+    if (!statsCfg) return
+    while (statQueue.length) {
+      const body = JSON.stringify({ p: statsCfg.pub || '', r: referrerHost, e: statQueue.splice(0, 40) })
+      try {
+        if (leaving && win.navigator.sendBeacon) win.navigator.sendBeacon(statsCfg.url, body)
+        else win.fetch(statsCfg.url, { method: 'POST', body, keepalive: true, headers: { 'Content-Type': 'text/plain' } }).catch(() => undefined)
+      } catch (error) { void error }
+    }
+  }
+  const stat = (metric, key) => {
+    if (!statsCfg) return
+    statQueue.push([metric, key == null ? '' : String(key).slice(0, 140)])
+    win.clearTimeout(statTimer)
+    statTimer = win.setTimeout(() => flushStats(false), 4000)
+  }
+  const STAT_OF = { page_view: ['page', 'page_number'], search: ['search', 'search_term'], click: ['click', 'link_url'], view_item: ['item', 'item_name'], share: ['share', 'method'], file_download: ['download', 'file_name'], video_start: ['video', 'video_title'], bookmark_page: ['bookmark', 'page_number'] }
   const track = (name, params) => {
+    const mapped = STAT_OF[name]
+    if (mapped && statsCfg) {
+      let key = params ? params[mapped[1]] : ''
+      if (name === 'search') key = String(key || '').trim().toLowerCase()
+      if (name === 'click') key = /^https:\/\/wa\.me\//.test(String(key)) ? 'WhatsApp' : String(key || '').replace(/^https?:\/\/(www\.)?/, '').replace(/[?#].*$/, '')
+      stat(mapped[0], key)
+    }
     const payload = Object.assign({ publication_title: data.title || '' }, params || {})
     if (opts.onTrack) { try { opts.onTrack(name, payload) } catch (error) { void error } }
-    if (!opts.standalone || !analyticsId || typeof win.gtag !== 'function') return
-    try { win.gtag('event', name, payload) } catch (error) { void error }
+    if (!opts.standalone) return
+    if (analyticsId && typeof win.gtag === 'function') {
+      try { win.gtag('event', name, payload) } catch (error) { void error }
+    }
+    adEvent(name, params || {})
+  }
+  /** Meta Pixel standard events and the LinkedIn enquiry conversion (when those tags are on the page). */
+  const linkedinConversion = String(readerSettings.linkedinConversionId || '').replace(/\D/g, '')
+  function adEvent(name, params) {
+    const fbq = typeof win.fbq === 'function' ? win.fbq : null
+    const enquiry = name === 'click' && /^(https:\/\/wa\.me\/|mailto:|tel:)/.test(String(params.link_url || ''))
+    try {
+      if (fbq) {
+        if (name === 'page_view') fbq('trackCustom', 'FlipPage', { page: params.page_number, section: params.section || '' })
+        else if (name === 'search') fbq('track', 'Search', { search_string: params.search_term })
+        else if (name === 'view_item') fbq('track', 'ViewContent', { content_name: params.item_name, content_type: 'product' })
+        else if (enquiry) fbq('track', 'Contact', { content_name: params.link_text || '' })
+        else if (name === 'click') fbq('trackCustom', 'OutboundClick', { url: params.link_url })
+        else if (name === 'share') fbq('trackCustom', 'Share', { method: params.method })
+        else if (name === 'file_download') fbq('trackCustom', 'DownloadPDF')
+        else if (name === 'video_start') fbq('trackCustom', 'VideoPlay', { title: params.video_title })
+      }
+      if (linkedinConversion && typeof win.lintrk === 'function' && name === 'click') win.lintrk('track', { conversion_id: Number(linkedinConversion) })
+    } catch (error) { void error }
   }
   // ---------- page links (…/#page=12) ----------
   const pageLinks = !!opts.standalone && readerSettings.pageLinks !== false && pages.length > 1
@@ -110,6 +162,7 @@ export function mountPublication(root, data, options) {
     mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
     more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
     play: '<path d="M8 5.5v13l11-6.5z"/>',
+    external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5"/>',
   }
   const svgIcon = (icon) => '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' + ICONS[icon] + '</svg>'
   const setIcon = (button, icon, label) => {
@@ -188,6 +241,10 @@ export function mountPublication(root, data, options) {
   const selectButton = iconButton('select-text', 'select', 'Select text', 'fs-reader-select', { 'aria-pressed': 'false' })
   const fullscreenButton = iconButton('fullscreen', 'full', 'Full screen', 'fs-reader-fullscreen')
   const moreButton = iconButton('more', 'more', 'More', 'fs-more-btn', { 'aria-expanded': 'false', 'aria-haspopup': 'dialog' })
+  // Embedded in another website (iframe or ?embed=1): a quieter top bar and a button to open the full catalogue.
+  let embedded = false
+  try { embedded = !!opts.standalone && (/[?&]embed=1/.test(String(win.location.search)) || win.self !== win.top) } catch (error) { void error; embedded = !!opts.standalone }
+  const openFullButton = iconButton('open-full', 'external', 'Open full catalogue')
   const shareUrl = () => data.shareUrl || (/^https?:/i.test(String(win.location && win.location.href)) ? String(win.location.href).split('#')[0] : '')
   const many = pages.length > 2
 
@@ -202,6 +259,10 @@ export function mountPublication(root, data, options) {
   if (readerSettings.downloadUrl) rightGroup.append(downloadLink)
   if (readerSettings.share !== false) rightGroup.append(emailButton)
   if (textTools) rightGroup.append(selectButton)
+  if (embedded) {
+    root.classList.add('fs-embedded')
+    rightGroup.append(openFullButton)
+  }
   rightGroup.append(fullscreenButton, moreButton)
   toolsBar.append(leftGroup, centerGroup, rightGroup)
 
@@ -1495,7 +1556,7 @@ export function mountPublication(root, data, options) {
         const box2 = make('input', '', { type: 'checkbox' })
         option.append(box2, 'Open at page ' + here)
         box2.addEventListener('change', () => {
-          link = box2.checked ? url + '#page=' + here : url
+          link = box2.checked ? (data.pageShare ? url.replace(/\/?$/, '/') + 'p/' + here + '/' : url + '#page=' + here) : url
           field.value = link
           copy.textContent = 'Copy link'
           fillGrid()
@@ -1533,6 +1594,13 @@ export function mountPublication(root, data, options) {
     link.remove()
   })
 
+  listen(openFullButton, 'click', () => {
+    let href = shareUrl()
+    try { if (!href) href = String(win.location.href).replace(/[?&]embed=1/, '') } catch (error) { void error }
+    const page = visiblePages()[0] + 1
+    if (href) win.open(href.split('#')[0] + (page > 1 ? '#page=' + page : ''), '_blank', 'noopener')
+    track('select_content', { content_type: 'open_full', page_number: page })
+  })
   listen(downloadLink, 'click', () => track('file_download', { file_name: downloadLink.getAttribute('download') || '', file_extension: 'pdf', link_url: /^https?:/i.test(downloadLink.href) ? downloadLink.href : '' }))
 
   // ---------- auto flip ----------
@@ -1695,7 +1763,7 @@ export function mountPublication(root, data, options) {
   listen(stage, 'touchend', (event) => { if (pinch && event.touches.length < 2) pinch = null }, { capture: true, passive: true })
 
   // ---------- visitor consent for analytics (optional cookie notice) ----------
-  if (opts.standalone && analyticsId && readerSettings.analyticsConsent) {
+  if (opts.standalone && (analyticsId || readerSettings.metaPixelId || readerSettings.linkedinPartnerId) && readerSettings.analyticsConsent) {
     let choice = ''
     try { choice = (storage && storage.getItem('fs-consent')) || '' } catch (error) { void error }
     if (!choice) {
@@ -1709,8 +1777,9 @@ export function mountPublication(root, data, options) {
       accept.textContent = 'Accept'
       const decide = (value) => {
         try { if (storage) storage.setItem('fs-consent', value) } catch (error) { void error }
-        if (value === 'granted' && typeof win.gtag === 'function') {
-          try { win.gtag('consent', 'update', { analytics_storage: 'granted' }) } catch (error) { void error }
+        if (value === 'granted') {
+          try { if (typeof win.gtag === 'function') win.gtag('consent', 'update', { analytics_storage: 'granted', ad_storage: 'granted', ad_user_data: 'granted', ad_personalization: 'granted' }) } catch (error) { void error }
+          try { if (typeof win.fsLoadAds === 'function') win.fsLoadAds() } catch (error) { void error }
         }
         notice.remove()
       }
@@ -1751,6 +1820,19 @@ export function mountPublication(root, data, options) {
       const linked = pageFromAddress()
       if (linked >= 0 && visiblePages().indexOf(linked) < 0) openPage(linked)
     })
+  }
+  if (statsCfg) {
+    const pubKey = statsCfg.pub || 'site'
+    try {
+      if (!win.sessionStorage.getItem('fs-visit:' + pubKey)) { stat('visit', ''); win.sessionStorage.setItem('fs-visit:' + pubKey, '1') }
+    } catch (error) { void error; stat('visit', '') }
+    try {
+      const today = new Date().toISOString().slice(0, 10)
+      if (storage && storage.getItem('fs-day:' + pubKey) !== today) { stat('visitor', ''); storage.setItem('fs-day:' + pubKey, today) }
+    } catch (error) { void error }
+    listen(doc, 'visibilitychange', () => { if (doc.visibilityState === 'hidden') flushStats(true) })
+    listen(win, 'pagehide', () => flushStats(true))
+    cleanups.push(() => { win.clearTimeout(statTimer); flushStats(true) })
   }
   reportPageView()
   cleanups.push(() => win.clearTimeout(viewTimer))
@@ -1793,7 +1875,7 @@ export function mountPublication(root, data, options) {
       }
       book = null
       root.replaceChildren()
-      root.classList.remove('fs-reader', 'fs-selecting', 'fs-zoomed', 'fs-no-book-shadow', 'fs-compact')
+      root.classList.remove('fs-reader', 'fs-selecting', 'fs-zoomed', 'fs-no-book-shadow', 'fs-compact', 'fs-embedded')
       Object.keys(themeVars).forEach((key) => root.style.removeProperty(key))
     },
   }

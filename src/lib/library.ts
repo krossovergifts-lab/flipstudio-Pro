@@ -21,6 +21,8 @@ export interface LibraryBook {
   coverSource?: string
   /** Set while the publication is live on the website. */
   published?: PublishedInfo
+  /** A new edition made from this publication (e.g. 2028 from 2027): publishing it can take over that link. */
+  editionOf?: string
 }
 
 export interface PublishedInfo {
@@ -491,13 +493,13 @@ export class Library {
     book.coverSource = book.cover ? key : undefined
   }
 
-  createBook(project: ProjectState, folderId: string | null = null): Promise<LibraryBook> {
+  createBook(project: ProjectState, folderId: string | null = null, extra: Pick<LibraryBook, 'editionOf'> = {}): Promise<LibraryBook> {
     return this.enqueue(async () => {
       const id = newId('pub')
       const stored = createProject({ ...project, id, version: PROJECT_VERSION })
       await this.writeProjectFiles(id, serializeProject(stored))
       const now = new Date().toISOString()
-      const book: LibraryBook = { id, folderId, createdAt: now, ...describe(stored) }
+      const book: LibraryBook = { id, folderId, createdAt: now, ...describe(stored), ...(extra.editionOf ? { editionOf: extra.editionOf } : {}) }
       await this.refreshCover(book, stored)
       this.index = { ...this.index, books: [book, ...this.index.books] }
       await this.saveIndex()

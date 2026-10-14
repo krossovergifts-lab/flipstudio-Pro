@@ -1,4 +1,5 @@
 import { Icon } from './Icon'
+import { EmbedDialog } from './EmbedDialog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Library } from '../lib/library'
 import type { ProjectState } from '../lib/project'
@@ -339,15 +340,19 @@ function ChooseSite({ onPick, onCancel, hasSites }: { onPick: (kind: 'setup-page
 /** Publish a publication as its own online flipbook link; update or unpublish it later. */
 export function PublishDialog({ library, bookId, project: givenProject, onClose, onChange, fetchImpl, apiBase }: PublishDialogProps) {
   const book = library.index.books.find((candidate) => candidate.id === bookId)
+  // A new edition that is not online yet starts on its source's website and link.
+  const source = book?.editionOf && !book.published ? library.index.books.find((candidate) => candidate.id === book.editionOf && candidate.published) : undefined
   const [sites, setSites] = useState<PublishSettings[]>(() => loadSites().filter(settingsComplete))
   const [siteId, setSiteId] = useState<string | undefined>(() => {
     const all = loadSites().filter(settingsComplete)
-    const wanted = book?.published?.siteId
+    const wanted = book?.published?.siteId ?? source?.published?.siteId
     return (wanted && all.some((site) => site.id === wanted) ? wanted : all[0]?.id) ?? undefined
   })
   const [editing, setEditing] = useState<PublishSettings | null>(null)
   const [view, setView] = useState<View>(() => (loadSites().some(settingsComplete) ? 'publish' : 'choose'))
-  const [slug, setSlug] = useState(book?.published?.slug || slugify(book?.title ?? givenProject?.title ?? 'publication'))
+  const [slug, setSlug] = useState(book?.published?.slug || source?.published?.slug || slugify(book?.title ?? givenProject?.title ?? 'publication'))
+  const [replaceOther, setReplaceOther] = useState(false)
+  const [embedUrl, setEmbedUrl] = useState('')
   const [progress, setProgress] = useState({ message: '', done: 0, total: 0 })
   const [error, setError] = useState('')
   const [result, setResult] = useState<{ url: string; summary: string } | null>(null)
@@ -362,11 +367,11 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !working) { event.preventDefault(); event.stopPropagation(); onClose() }
+      if (event.key === 'Escape' && !working && !embedUrl) { event.preventDefault(); event.stopPropagation(); onClose() }
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
-  }, [onClose, working])
+  }, [onClose, working, embedUrl])
 
   useEffect(() => {
     dialogRef.current?.querySelector<HTMLElement>('input, button.primary')?.focus()
@@ -386,11 +391,12 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
     () => library.index.books.filter((other) => other.id !== bookId && other.published && (other.published.siteId ?? 'site-main') === siteId),
     [bookId, library.index.books, siteId],
   )
-  const librarySlugs = new Map(others.map((other) => [other.published!.slug, other.title]))
+  const holder = single ? undefined : others.find((other) => other.published!.slug === slug)
+  const takeover = Boolean(holder && (holder.id === source?.id || replaceOther))
   const slugProblem = single ? '' : validateSlug(slug)
-    || (librarySlugs.has(slug) ? `“${librarySlugs.get(slug)}” already uses this link. Choose another name.` : '')
-  const takenOnline = !single && !slugProblem && slug !== published?.slug && taken.includes(slug)
-  const replacing = single ? others[0] : undefined
+    || (holder && !takeover ? `“${holder.title}” already uses this link.` : '')
+  const takenOnline = !single && !slugProblem && !holder && slug !== published?.slug && taken.includes(slug)
+  const replacing = single ? others[0] : takeover ? holder : undefined
   const movingSite = Boolean(published && publishedSite && settings && publishedSite.id !== settings.id)
 
   if (!book) return null
@@ -531,10 +537,16 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
                     <span className="publish-prefix">/</span>
                   </div>
                 </label>
-                {slugProblem ? <p className="publish-error">{slugProblem}</p> : takenOnline ? <p className="publish-warn">A publication with this link is already online (published from another computer?). Publishing will replace it.</p> : <p className="publish-note">Share link: <code>{link}</code></p>}
+                {holder && !takeover && (
+                  <label className="publish-check">
+                    <input type="checkbox" checked={replaceOther} onChange={(event) => setReplaceOther(event.target.checked)} />
+                    <span>Replace “{holder.title}” at this link (it stays in your library)</span>
+                  </label>
+                )}
+                {slugProblem ? <p className="publish-error">{slugProblem}{holder ? ' Tick the box to replace it, or choose another name.' : ''}</p> : takenOnline ? <p className="publish-warn">A publication with this link is already online (published from another computer?). Publishing will replace it.</p> : <p className="publish-note">Share link: <code>{link}</code></p>}
               </>
             )}
-            {replacing && <p className="publish-warn">“{replacing.title}” is on this website now. Publishing replaces it with this publication.</p>}
+            {replacing && <p className="publish-warn">“{replacing.title}” is {single ? 'on this website' : 'at this link'} now. Publishing replaces it with this publication — the link stays the same, so everyone who has it sees “{book.title}”.</p>}
             {movingSite && <p className="publish-warn">It moves from {published!.url} — that old link will stop working.</p>}
             {published && !movingSite && !single && published.slug && published.slug !== slug && !slugProblem && <p className="publish-warn">The old link {published.url} will stop working.</p>}
             <p className="publish-note">Publishes the pages, objects, animations, links, fonts and the flipbook design, plus a preview image for WhatsApp and social media. The editable project file is not put online. The website updates about a minute after publishing.</p>
@@ -548,6 +560,7 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
             <div className="publish-foot">
               <span className="spacer" />
               {published && <button type="button" className="danger" onClick={() => setView('unpublish')} disabled={working}>Unpublish</button>}
+              {published && <button type="button" onClick={() => setEmbedUrl(published.url)} disabled={working}><Icon name="code" />Embed code</button>}
               <button type="button" onClick={onClose} disabled={working}>Close</button>
               <button type="button" className="primary" onClick={() => void doPublish()} disabled={working || Boolean(slugProblem)}>
                 {working ? 'Publishing…' : published && !movingSite ? 'Update online version' : 'Publish'}
@@ -579,6 +592,7 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
               <button type="button" onClick={() => void openExternal(result.url)}>Open in browser ↗</button>
               <button type="button" onClick={() => void openExternal(whatsappShareUrl(book.title, result.url))}>Share on WhatsApp</button>
               <button type="button" onClick={() => void openExternal(`mailto:?subject=${encodeURIComponent(book.title)}&body=${encodeURIComponent(result.url)}`)}>Email link</button>
+              <button type="button" onClick={() => setEmbedUrl(result.url)}><Icon name="code" />Embed on a website</button>
             </div>
             <p className="publish-note">If the link shows “not found”, wait a minute for the host to finish deploying, then refresh.</p>
             <div className="publish-foot">
@@ -588,6 +602,7 @@ export function PublishDialog({ library, bookId, project: givenProject, onClose,
           </div>
         )}
       </div>
+      {embedUrl && <EmbedDialog url={embedUrl} title={book.title} pageCount={book.pageCount} onClose={() => setEmbedUrl('')} />}
     </div>
   )
 }

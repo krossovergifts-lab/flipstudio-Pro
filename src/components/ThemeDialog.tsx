@@ -19,7 +19,7 @@ export interface ThemeDialogProps {
 
 const LANGUAGES: Array<[string, string]> = [['en', 'English'], ['ar', 'Arabic'], ['fr', 'French'], ['de', 'German'], ['es', 'Spanish'], ['it', 'Italian'], ['ru', 'Russian'], ['zh', 'Chinese'], ['hi', 'Hindi'], ['ml', 'Malayalam'], ['ur', 'Urdu'], ['tr', 'Turkish'], ['pt', 'Portuguese'], ['nl', 'Dutch']]
 /** Settings that describe the publication rather than its look: kept by "Reset to default". */
-const KEEP_ON_RESET: Array<keyof ReaderSettings> = ['analyticsId', 'analyticsConsent', 'seoTitle', 'language', 'noIndex', 'pageLinks', 'logoAssetId', 'logoLink', 'downloadAssetId', 'downloadName']
+const KEEP_ON_RESET: Array<keyof ReaderSettings> = ['analyticsId', 'analyticsConsent', 'metaPixelId', 'linkedinPartnerId', 'linkedinConversionId', 'seoTitle', 'language', 'noIndex', 'pageLinks', 'logoAssetId', 'logoLink', 'downloadAssetId', 'downloadName']
 
 const DEFAULT_READER: ReaderSettings = {
   backgroundMode: 'solid',
@@ -464,6 +464,23 @@ export function ThemeDialog({ project, initialTab = 'theme', onCancel, onApply }
                     </ul>
                   </div>
                   <small>Works on the published website. Preview and the editor never send data.</small>
+                </section>
+                <section>
+                  <h3>Ad tracking (retargeting)</h3>
+                  <label className="theme-text">
+                    Meta Pixel ID (Facebook &amp; Instagram)
+                    <input value={draft.metaPixelId ?? ''} onChange={(event) => set({ metaPixelId: event.target.value.replace(/[^\d]/g, '') })} placeholder="e.g. 1234567890123456" inputMode="numeric" spellCheck={false} />
+                  </label>
+                  <small>Meta Events Manager → Data sources → your Pixel → Settings → Pixel ID. Sends PageView, FlipPage, Search, ViewContent (product pop-ups), Contact (WhatsApp, email, phone) and more.</small>
+                  <label className="theme-text">
+                    LinkedIn Insight Tag partner ID
+                    <input value={draft.linkedinPartnerId ?? ''} onChange={(event) => set({ linkedinPartnerId: event.target.value.replace(/[^\d]/g, '') })} placeholder="e.g. 1234567" inputMode="numeric" spellCheck={false} />
+                  </label>
+                  <label className="theme-text">
+                    LinkedIn conversion ID for enquiries (optional)
+                    <input value={draft.linkedinConversionId ?? ''} onChange={(event) => set({ linkedinConversionId: event.target.value.replace(/[^\d]/g, '') })} placeholder="e.g. 12345678" inputMode="numeric" spellCheck={false} disabled={!draft.linkedinPartnerId} />
+                  </label>
+                  <small>LinkedIn Campaign Manager → Analyze → Insight Tag (partner ID) and Conversion tracking (conversion ID). The conversion counts link and WhatsApp clicks. With “Ask visitors first”, ad tags load only after a visitor accepts.</small>
                 </section>
               </>
             )}
