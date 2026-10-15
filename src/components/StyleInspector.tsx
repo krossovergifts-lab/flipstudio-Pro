@@ -172,12 +172,26 @@ function PopupEditor({ popup, assets, pageCount, onChange, onPickImage }: { popu
   )
 }
 
+/** Largest font size (page units) at which the label fits inside the object, with its padding. */
+function fitFontSize(overlay: OverlayObject, padding: number): number {
+  const text = (overlay.label || '').trim() || ' '
+  const innerW = Math.max(4, overlay.width - padding * 2)
+  const innerH = Math.max(4, overlay.height - padding * 2)
+  const lines = text.split('\n')
+  const longest = Math.max(...lines.map((line) => line.length), 1)
+  // Average glyph is about 0.56 em wide; line height about 1.15.
+  const byWidth = innerW / (longest * 0.56)
+  const byHeight = innerH / (lines.length * 1.15)
+  return Math.max(6, Math.floor(Math.min(byWidth, byHeight) * 0.92))
+}
+
 export function StyleInspector({ overlay, fonts, assets, pageCount, onChange, onImportFont, onPickPopupImage, cropping, onToggleCrop }: StyleInspectorProps) {
   const styled = overlay.type === 'text' || overlay.type === 'button' || overlay.type === 'hotspot'
   const look = styleFor(overlay)
   const setStyle = (patch: Partial<ObjectStyle>, mergeKey?: string) => onChange({ style: { ...overlay.style, ...patch } }, mergeKey ? `style-${mergeKey}` : undefined)
   const presets = overlay.type === 'button' ? BUTTON_PRESETS : overlay.type === 'hotspot' ? HOTSPOT_PRESETS : TEXT_PRESETS
-  const showTypography = overlay.type !== 'hotspot' || look.showLabel
+  const showTypography = true
+  const hotspotTextOff = overlay.type === 'hotspot' && !look.showLabel
   const fillMode = look.gradient ? 'gradient' : look.background === 'transparent' ? 'none' : 'solid'
   const font = findFont(look.fontFamily, fonts)
 
@@ -267,12 +281,22 @@ export function StyleInspector({ overlay, fonts, assets, pageCount, onChange, on
       {styled && showTypography && (
         <details className="inspector-section collapsible" open>
           <summary><h3>Text &amp; font</h3></summary>
-          {overlay.type === 'text' && (
-            <label>
-              Text
-              <textarea rows={3} dir="auto" value={overlay.label} onChange={(event) => onChange({ label: event.target.value }, 'label')} />
+          {overlay.type === 'hotspot' && (
+            <label className="check">
+              <input type="checkbox" checked={Boolean(look.showLabel)} onChange={(event) => setStyle(event.target.checked && /^#?f{3,6}$|^#ffffff$|white/i.test(look.color) && (look.background === 'transparent' || /rgba\([^)]*,\s*0?\.[0-4]\d*\)/.test(look.background)) ? { showLabel: true, color: '#1f2937' } : { showLabel: event.target.checked })} />
+              Show text on the hotspot
             </label>
           )}
+          {(overlay.type === 'text' || overlay.type === 'button' || overlay.type === 'hotspot') && !hotspotTextOff && (
+            <label>
+              Text
+              <textarea rows={overlay.type === 'text' ? 3 : 2} dir="auto" value={overlay.label} onChange={(event) => onChange({ label: event.target.value }, 'label')} aria-label="Object text" />
+            </label>
+          )}
+          {hotspotTextOff ? (
+            <p className="muted small">Turn this on to write text inside the hotspot and style it — font, size, bold, colour and alignment inside the shape.</p>
+          ) : (
+          <>
           <label>
             Font
             <select value={font.id} onChange={(event) => setStyle({ fontFamily: event.target.value, fontWeight: findFont(event.target.value, fonts).weights.includes(look.fontWeight) ? look.fontWeight : findFont(event.target.value, fonts).weights[0] })} style={{ fontFamily: font.stack }}>
@@ -318,6 +342,11 @@ export function StyleInspector({ overlay, fonts, assets, pageCount, onChange, on
             onChange={(verticalAlign) => setStyle({ verticalAlign })}
             options={[{ value: 'top', label: 'Top' }, { value: 'middle', label: 'Middle' }, { value: 'bottom', label: 'Bottom' }]}
           />
+          {overlay.type !== 'text' && (
+            <button type="button" className="block" title="Centre the text in the shape and pick the largest size that fits" onClick={() => onChange({ fontSize: fitFontSize(overlay, look.padding), style: { ...overlay.style, textAlign: 'center', verticalAlign: 'middle' } })}>
+              Fit text to the shape
+            </button>
+          )}
           <ColorField label="Text colour" value={look.color} allowAlpha={false} onChange={(color, key) => setStyle({ color }, key)} />
           <div className="field-grid">
             <NumberField label="Line height" min={0.6} max={3} step={0.05} value={look.lineHeight} onCommit={(lineHeight) => setStyle({ lineHeight }, 'line-height')} />
@@ -346,6 +375,8 @@ export function StyleInspector({ overlay, fonts, assets, pageCount, onChange, on
               <ColorField label="From" value={look.textGradient.from} allowAlpha={false} onChange={(from, key) => setStyle({ textGradient: { ...look.textGradient!, from } }, key)} />
               <ColorField label="To" value={look.textGradient.to} allowAlpha={false} onChange={(to, key) => setStyle({ textGradient: { ...look.textGradient!, to } }, key)} />
             </div>
+          )}
+          </>
           )}
         </details>
       )}
@@ -440,10 +471,6 @@ export function StyleInspector({ overlay, fonts, assets, pageCount, onChange, on
               <ColorField label="Icon" value={look.markerColor} allowAlpha={false} onChange={(markerColor, key) => setStyle({ markerColor }, key)} />
             </div>
           )}
-          <label className="check">
-            <input type="checkbox" checked={Boolean(look.showLabel)} onChange={(event) => setStyle({ showLabel: event.target.checked })} />
-            Show label text inside the hotspot
-          </label>
         </details>
       )}
 
